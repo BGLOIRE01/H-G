@@ -1,0 +1,101 @@
+{% extends "layout.html" %}
+
+{% block title %}Transactions{% endblock %}
+{% block page_title %}Transaction History{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1rem;">
+        <form method="GET" style="display: flex; gap: 1rem; align-items: flex-end;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="date">Date</label>
+                <input type="date" name="date" id="date" value="{{ selected_date }}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="currency">Currency</label>
+                <select name="currency" id="currency">
+                    <option value="">All Currencies</option>
+                    <option value="USD" {% if selected_currency=='USD' %}selected{% endif %}>USD</option>
+                    <option value="CNY" {% if selected_currency=='CNY' %}selected{% endif %}>CNY</option>
+                    <option value="CAD" {% if selected_currency=='CAD' %}selected{% endif %}>CAD</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            <a href="{{ url_for('transactions_history') }}" class="btn"
+                style="text-decoration: none; color: var(--text-secondary);">Clear</a>
+        </form>
+
+        <div class="text-right" style="display: flex; gap: 2rem; align-items: flex-end;">
+            <div>
+                <span class="stat-label">Total Selected Profit:</span><br>
+                <span class="stat-value" style="font-size: 1.4rem; color: var(--secondary-color);">{{
+                    "{:,.0f}".format(total_profit) }} RWF</span>
+            </div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date & Time</th>
+                <th>Type</th>
+                <th class="text-right">Foreign Amt</th>
+                <th class="text-right">RWF/Other Amt</th>
+                <th class="text-right">Rate Used</th>
+                <th class="text-right">Profit/Fee</th>
+                <th>Client Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in transactions %}
+            <tr>
+                <td>#{{ tx.id }}</td>
+                <td>{{ tx.timestamp }}</td>
+                <td>
+                    <span
+                        style="padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; background: #f0f0f0; color: #333;">
+                        {{ tx.transaction_type.replace('_', ' ') }}
+                    </span>
+                </td>
+                <td class="text-right">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'USD_TO_CNY'] %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} USD
+                    {% elif tx.transaction_type in ['CAD_TO_USD', 'CNY_TO_USD'] %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} {{ tx.transaction_type.split('_')[0] }}
+                    {% else %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} {{ tx.foreign_currency }}
+                    {% endif %}
+                </td>
+                <td class="text-right">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'USD_TO_CNY'] %}
+                    {{ "{:,.2f}".format(tx.rwf_amount) }} {{ tx.transaction_type.split('_')[2] }}
+                    {% elif tx.transaction_type in ['CAD_TO_USD', 'CNY_TO_USD'] %}
+                    {{ "{:,.2f}".format(tx.rwf_amount) }} USD
+                    {% else %}
+                    {{ "{:,.0f}".format(tx.rwf_amount) }}
+                    {% endif %}
+                </td>
+                <td class="text-right">{{ tx.rate_used if tx.rate_used > 0 else '-' }}</td>
+                <td class="text-right"
+                    style="font-weight: 600; color: {% if tx.profit > 0 or tx.fee > 0 %}var(--secondary-color){% else %}#757575{% endif %};">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD'] %}
+                    -
+                    {% elif tx.transaction_type == 'USD_US_TO_USD_RWA' %}
+                    ${{ "{:,.2f}".format(tx.fee) }} (Fee)
+                    {% else %}
+                    {{ "{:,.0f}".format(tx.profit) }} RWF
+                    {% endif %}
+                </td>
+                <td>{{ tx.client_name }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-secondary);">No transactions
+                    found for this period.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

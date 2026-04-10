@@ -1,0 +1,24 @@
+{
+    "USD": {
+        "sell_rate": 1432.0,
+        "buy_rate": 1465.0
+    },
+    "CNY": {
+        "sell_rate": 200.0,
+        "buy_rate": 210.0
+    },
+    "CAD": {
+        "sell_rate": 1030.0,
+        "buy_rate": 1085.0
+    },
+    "USD_CAD": {
+        "sell_rate": 1.35,
+        "buy_rate": 1.45
+    },
+    "USD_CNY": {
+        "sell_rate": 7.2,
+        "buy_rate": 7.6
+    },
+    "usd_transfer_fee": 4.0,
+    "last_updated": "2026-04-10 18:49:50"
+}

@@ -1,0 +1,529 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+    --primary-color: #1a237e;
+    --primary-light: #534bae;
+    --primary-dark: #000051;
+    --secondary-color: #2e7d32;
+    --accent-color: #ff9800;
+    --bg-color: #f0f2f8;
+    --sidebar-bg: #ffffff;
+    --card-bg: #ffffff;
+    --text-primary: #212121;
+    --text-secondary: #757575;
+    --border-color: #e0e0e0;
+    --shadow: 0 4px 24px rgba(26, 35, 126, 0.08);
+    --shadow-hover: 0 8px 32px rgba(26, 35, 126, 0.16);
+    --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+    --primary-color: #7986cb;
+    --primary-light: #aab6fb;
+    --primary-dark: #3949ab;
+    --secondary-color: #81c784;
+    --accent-color: #ffb74d;
+    --bg-color: #0d0f1a;
+    --sidebar-bg: #13151f;
+    --card-bg: #181b27;
+    --text-primary: #e8eaf6;
+    --text-secondary: #9fa8da;
+    --border-color: #252840;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    --shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+}
+
+/* ── ANIMATED BACKGROUND — pure CSS, no blocking elements ── */
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    display: flex;
+    min-height: 100vh;
+    transition: background-color 0.5s ease, color 0.5s ease;
+    overflow-x: hidden;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+    width: 260px;
+    background-color: var(--sidebar-bg);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    height: 100vh;
+    z-index: 100;
+    transition: background-color 0.5s ease, border-color 0.5s ease;
+}
+
+.sidebar-header {
+    padding: 2rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-menu {
+    flex: 1;
+    padding: 1rem 0;
+    overflow-y: auto;
+}
+
+.sidebar-menu a {
+    display: flex;
+    align-items: center;
+    padding: 0.9rem 2rem;
+    text-decoration: none;
+    color: var(--text-secondary);
+    transition: var(--transition);
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+}
+
+.sidebar-menu a::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, rgba(26, 35, 126, 0.08), transparent);
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+.sidebar-menu a:hover::before,
+.sidebar-menu a.active::before {
+    width: 100%;
+}
+
+.sidebar-menu a:hover,
+.sidebar-menu a.active {
+    color: var(--primary-color);
+    border-right: 3px solid var(--primary-color);
+    padding-left: 2.3rem;
+}
+
+/* Ripple */
+.ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(26, 35, 126, 0.15);
+    width: 8px;
+    height: 8px;
+    transform: scale(0);
+    animation: rippleAnim 0.6s linear;
+    pointer-events: none;
+}
+
+@keyframes rippleAnim {
+    to {
+        transform: scale(30);
+        opacity: 0;
+    }
+}
+
+.sidebar-footer {
+    padding: 1.5rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* ── MAIN CONTENT ── */
+.main-content {
+    margin-left: 260px;
+    flex: 1;
+    padding: 2rem;
+    position: relative;
+    z-index: 1;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.user-role {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+    color: white;
+    padding: 0.2rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+    box-shadow: 0 2px 8px rgba(26, 35, 126, 0.25);
+}
+
+/* ── CARDS ── */
+.card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    margin-bottom: 1.5rem;
+    transition: box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        background-color 0.5s ease;
+    border: 1px solid var(--border-color);
+    position: relative;
+    overflow: hidden;
+}
+
+.card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--primary-color), var(--primary-light), var(--secondary-color));
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+}
+
+.card:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px);
+}
+
+.card:hover::after {
+    opacity: 1;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(24px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes cardAppear {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.fade-in-down {
+    animation: fadeInDown 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+    animation-delay: 0.1s;
+}
+
+.slide-in {
+    animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.card-appear {
+    animation: cardAppear 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ── GRID ── */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+/* ── STAT CARDS ── */
+.stat-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-label {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--primary-color);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: -0.02em;
+    transition: color 0.3s ease;
+}
+
+.stat-trend {
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+}
+
+.trend-up {
+    color: var(--secondary-color);
+}
+
+.trend-down {
+    color: #e53935;
+}
+
+/* ── TABLES ── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+th {
+    text-align: left;
+    padding: 1rem;
+    border-bottom: 2px solid var(--border-color);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+td {
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+tr {
+    transition: background-color 0.2s ease;
+}
+
+tr:hover td {
+    background-color: rgba(26, 35, 126, 0.03);
+}
+
+/* ── FORMS ── */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+input,
+select {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    border: 1.5px solid var(--border-color);
+    border-radius: 10px;
+    outline: none;
+    transition: var(--transition);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.95rem;
+}
+
+input:focus,
+select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(26, 35, 126, 0.1);
+    transform: translateY(-1px);
+}
+
+input:hover,
+select:hover {
+    border-color: var(--primary-light);
+}
+
+/* ── BUTTONS ── */
+.btn {
+    padding: 0.8rem 1.5rem;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 700;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-align: center;
+    display: inline-block;
+    position: relative;
+    overflow: hidden;
+    letter-spacing: 0.01em;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+    color: white;
+    box-shadow: 0 4px 12px rgba(26, 35, 126, 0.3);
+}
+
+.btn-primary:hover {
+    box-shadow: 0 6px 20px rgba(26, 35, 126, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, var(--secondary-color), #388e3c);
+    color: white;
+    box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3);
+}
+
+.btn-secondary:hover {
+    box-shadow: 0 6px 20px rgba(46, 125, 50, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-secondary:active {
+    transform: translateY(0);
+}
+
+/* ── UTILITIES ── */
+.text-right {
+    text-align: right;
+}
+
+.mt-2 {
+    margin-top: 2rem;
+}
+
+/* ── LOGIN PAGE ── */
+.login-container {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary-color), var(--primary-light));
+    background-size: 300% 300%;
+    animation: gradientShift 8s ease infinite;
+}
+
+@keyframes gradientShift {
+
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+.login-card {
+    width: 420px;
+    background: var(--card-bg);
+    padding: 3rem;
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+    position: relative;
+    z-index: 1;
+}
+
+.login-card h2 {
+    text-align: center;
+    color: var(--primary-color);
+    margin-bottom: 2rem;
+    font-size: 1.5rem;
+    font-weight: 800;
+}
+
+/* ── LOGOS ── */
+.sidebar-logo {
+    max-width: 100%;
+    max-height: 390px;
+    object-fit: contain;
+    transform: scale(2);
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-logo:hover {
+    transform: scale(2.1);
+}
+
+.login-logo {
+    max-width: 100%;
+    max-height: 450px;
+    object-fit: contain;
+    margin: 0 auto 2rem auto;
+    display: block;
+    transform: scale(2);
+    animation: fadeInDown 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-light);
+}
+
+/* ── THEME TRANSITION ── */
+html {
+    transition: background-color 0.4s ease;
+}

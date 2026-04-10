@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+
+{% block title %}Monthly Reports{% endblock %}
+{% block page_title %}Monthly Financial Reports{% endblock %}
+
+{% block content %}
+<div class="grid">
+    <div class="card" style="grid-column: span 2;">
+        <h3>Generated PDF Reports</h3>
+        <p class="stat-label">Reports are generated at the end of each month and archived.</p>
+
+        <table style="margin-top: 1.5rem;">
+            <thead>
+                <tr>
+                    <th>Report Name</th>
+                    <th>Period</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for report in reports %}
+                <tr>
+                    <td><strong>{{ report }}</strong></td>
+                    <td>{{ report.split('_')[2] }} {{ report.split('_')[3].split('.')[0] }}</td>
+                    <td>
+                        <a href="/reports/monthly_reports/{{ report }}" class="btn btn-secondary"
+                            style="padding: 0.4rem 1rem; font-size: 0.8rem;">View PDF</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center; padding: 2rem; color: var(--text-secondary);">No reports
+                        generated yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>Report Generator</h3>
+        <p class="stat-label">Generate the current month's report manually.</p>
+
+        {% if session.get('role') == 'admin' %}
+        <div
+            style="margin-top: 1.5rem; padding: 1rem; background: rgba(220, 50, 50, 0.06); border: 1px solid rgba(220, 50, 50, 0.2); border-radius: 8px; font-size: 0.85rem; color: #b71c1c;">
+            <strong>⚠️ Warning:</strong> Generating a report will:
+            <ul style="padding-left: 1.2rem; margin-top: 0.5rem; line-height: 1.6;">
+                <li>Calculate all monthly totals and create a PDF</li>
+                <li>Archive the current database</li>
+                <li>Clear all transactions and batches</li>
+                <li>Forward pending debts to next month</li>
+                <li>Reset cumulative profit to 0</li>
+            </ul>
+            <p style="margin-top: 0.5rem;"><strong>This cannot be undone.</strong></p>
+        </div>
+
+        <form action="{{ url_for('generate_report') }}" method="POST" style="margin-top: 1.5rem;"
+            onsubmit="return confirm('Are you sure you want to generate the monthly report? This will reset the database for the new month and cannot be undone.');">
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1rem;">
+                📊 Generate Monthly Report
+            </button>
+        </form>
+
+        {% else %}
+        <div
+            style="margin-top: 1.5rem; padding: 1rem; background: rgba(26,35,126,0.05); border-radius: 8px; font-size: 0.9rem; color: var(--text-secondary);">
+            🔒 Only admins can generate monthly reports.
+        </div>
+        {% endif %}
+
+        <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+            <h4 style="margin-bottom: 0.75rem; color: var(--primary-color);">What's included in the report?</h4>
+            <ul style="padding-left: 1.2rem; color: var(--text-secondary); line-height: 1.6; font-size: 0.85rem;">
+                <li>Total volume per currency pair</li>
+                <li>Realized profit per pair (RWF)</li>
+                <li>USD transfer fees collected</li>
+                <li>Pending debts forwarded to next month</li>
+                <li>Full detailed transaction log</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,317 @@
+{% extends "layout.html" %}
+
+{% block title %}Calculator{% endblock %}
+{% block page_title %}New Transaction Calculator{% endblock %}
+
+{% block content %}
+<div class="grid">
+    <div class="card" style="grid-column: span 2;">
+        <h3>Forex Calculator</h3>
+        <form method="POST" id="calcForm" style="margin-top: 1.5rem;">
+            <div class="grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="form-group">
+                    <label for="client_name">Client Name</label>
+                    <input type="text" name="client_name" id="client_name" required placeholder="Enter client name">
+                </div>
+                <div class="form-group">
+                    <label for="type">Transaction Type</label>
+                    <select name="type" id="type" required>
+                        <optgroup label="Exchange (Foreign → Rwanda)">
+                            <option value="USD_TO_RWF" data-curr="USD" data-dir="SELL"
+                                data-rate="{{ rates.USD.sell_rate }}">USD → RWF (Sell USD)</option>
+                            <option value="CNY_TO_RWF" data-curr="CNY" data-dir="SELL"
+                                data-rate="{{ rates.CNY.sell_rate }}">CNY → RWF (Sell CNY)</option>
+                            <option value="CAD_TO_RWF" data-curr="CAD" data-dir="SELL"
+                                data-rate="{{ rates.CAD.sell_rate }}">CAD → RWF (Sell CAD)</option>
+                        </optgroup>
+                        <optgroup label="Exchange (Rwanda → Foreign)">
+                            <option value="RWF_TO_USD" data-curr="USD" data-dir="BUY"
+                                data-rate="{{ rates.USD.buy_rate }}">RWF → USD (Buy USD)</option>
+                            <option value="RWF_TO_CNY" data-curr="CNY" data-dir="BUY"
+                                data-rate="{{ rates.CNY.buy_rate }}">RWF → CNY (Buy CNY)</option>
+                            <option value="RWF_TO_CAD" data-curr="CAD" data-dir="BUY"
+                                data-rate="{{ rates.CAD.buy_rate }}">RWF → CAD (Buy CAD)</option>
+                        </optgroup>
+                        <optgroup label="Independent Pairs (USD Base)">
+                            <option value="USD_TO_CAD" data-curr="USD_CAD" data-dir="IND_SELL"
+                                data-rate="{{ rates.USD_CAD.sell_rate }}">USD → CAD (Sell USD)</option>
+                            <option value="CAD_TO_USD" data-curr="USD_CAD" data-dir="IND_BUY"
+                                data-rate="{{ rates.USD_CAD.buy_rate }}">CAD → USD (Buy USD)</option>
+                            <option value="USD_TO_CNY" data-curr="USD_CNY" data-dir="IND_SELL"
+                                data-rate="{{ rates.USD_CNY.sell_rate }}">USD → CNY (Sell USD)</option>
+                            <option value="CNY_TO_USD" data-curr="USD_CNY" data-dir="IND_BUY"
+                                data-rate="{{ rates.USD_CNY.buy_rate }}">CNY → USD (Buy USD)</option>
+                        </optgroup>
+                        <optgroup label="Other Transfers">
+                            <option value="USD_US_TO_USD_RWA" data-curr="USD" data-dir="FEE"
+                                data-fee="{{ rates.usd_transfer_fee }}">USD US → USD RWA (Fixed Fee)</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label id="input_label" for="amount">Amount to Send</label>
+                    <input type="number" step="0.01" name="amount" id="amount" required placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="card"
+                style="background-color: rgba(26, 35, 126, 0.02); border: 1px dashed var(--primary-color);">
+                <div class="grid">
+                    <div>
+                        <p class="stat-label" id="recv_title">Customer Receives</p>
+                        <!-- Two-way editable received field -->
+                        <input type="number" step="0.01" id="received_input" placeholder="0.00" style="
+                                font-size: 1.8rem;
+                                font-weight: 700;
+                                border: none;
+                                border-bottom: 2px dashed var(--primary-color);
+                                background: transparent;
+                                width: 100%;
+                                outline: none;
+                                color: var(--text-primary);
+                                padding: 0.2rem 0;
+                            ">
+                        <p class="stat-label" id="recv_currency">RWF</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p class="stat-label" id="profit_title">Expected Profit Spread</p>
+                        <p class="stat-value" id="preview_profit" style="color: var(--secondary-color);">0</p>
+                        <p class="stat-label" id="profit_currency">RWF (Estimated)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                <button type="submit" class="btn btn-primary" id="submit_btn">Confirm & Record</button>
+                <button type="reset" class="btn btn-secondary" onclick="resetPreview()">Clear</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Rate Information</h3>
+        <div id="pair-info">
+            <p class="stat-label">Current Rate:</p>
+            <p id="info-rate" style="font-size: 1.2rem; font-weight: 600;">-</p>
+            <p class="stat-label" style="margin-top: 1rem;">Profit Spread:</p>
+            <p id="info-spread" style="color: var(--secondary-color); font-weight: bold;">-</p>
+            <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border-color);">
+            <p class="stat-label">Inventory Balance:</p>
+            <p id="info-balance-label">-</p>
+            <p id="info-balance-value" style="font-weight: 600;">-</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const amountInput = document.getElementById('amount');
+    const receivedInput = document.getElementById('received_input');
+    const typeSelect = document.getElementById('type');
+    const previewProfit = document.getElementById('preview_profit');
+    const recvCurrencyLabel = document.getElementById('recv_currency');
+    const inputLabel = document.getElementById('input_label');
+
+    const infoRateLabel = document.getElementById('info-rate');
+    const infoSpreadLabel = document.getElementById('info-spread');
+    const infoBalanceLabel = document.getElementById('info-balance-label');
+    const infoBalanceValue = document.getElementById('info-balance-value');
+
+    const recvTitle = document.getElementById('recv_title');
+    const profitTitle = document.getElementById('profit_title');
+    const profitCurrency = document.getElementById('profit_currency');
+
+    const rates = {{ rates | tojson }};
+    const balances = {{ balances | tojson }};
+
+    let lastEdited = 'send';
+
+    function getParams() {
+        const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+        return {
+            currency: selectedOption.getAttribute('data-curr'),
+            direction: selectedOption.getAttribute('data-dir'),
+        };
+    }
+
+    // Calculate received from send amount
+    function computeFromSend(amount, currency, direction) {
+        if (direction === 'SELL') {
+            return { received: amount * rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'BUY') {
+            const received = amount / rates[currency].buy_rate;
+            return { received, profit: received * (rates[currency].buy_rate - rates[currency].sell_rate) };
+        }
+        if (direction === 'IND_SELL') {
+            return { received: amount * rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'IND_BUY') {
+            return { received: amount / rates[currency].buy_rate, profit: 0 };
+        }
+        if (direction === 'FEE') {
+            // amount = what receiver gets → sender pays = amount + fee
+            const fee = rates.usd_transfer_fee;
+            return {
+                received: amount > 0 ? amount + fee : 0,
+                profit: amount > 0 ? fee : 0
+            };
+        }
+        return { received: 0, profit: 0 };
+    }
+
+    // Calculate send amount from received amount (reverse)
+    function computeFromReceive(received, currency, direction) {
+        if (direction === 'SELL') {
+            return { send: received / rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'BUY') {
+            const send = received * rates[currency].buy_rate;
+            return { send, profit: received * (rates[currency].buy_rate - rates[currency].sell_rate) };
+        }
+        if (direction === 'IND_SELL') {
+            return { send: received / rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'IND_BUY') {
+            return { send: received * rates[currency].buy_rate, profit: 0 };
+        }
+        if (direction === 'FEE') {
+            // received = Sender Pays Total → receiver gets = sender - fee
+            const fee = rates.usd_transfer_fee;
+            return {
+                send: received > 0 ? received - fee : 0,
+                profit: received > 0 ? fee : 0
+            };
+        }
+        return { send: 0, profit: 0 };
+    }
+
+    function updateLabels(currency, direction) {
+        if (direction === 'SELL') {
+            inputLabel.innerText = currency + " Amount to Send";
+            recvCurrencyLabel.innerText = "RWF";
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = rates[currency].sell_rate + " RWF / " + currency;
+            infoSpreadLabel.innerText = "0 RWF (Business sells RWF)";
+            infoBalanceLabel.innerText = "RWF Inventory:";
+            infoBalanceValue.innerText = balances.rwf_balance.toLocaleString() + " RWF";
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
+
+        } else if (direction === 'BUY') {
+            const spread = rates[currency].buy_rate - rates[currency].sell_rate;
+            inputLabel.innerText = "RWF Amount to Send";
+            recvCurrencyLabel.innerText = currency;
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = rates[currency].buy_rate + " RWF / " + currency;
+            infoSpreadLabel.innerText = spread.toFixed(2) + " RWF per " + currency;
+            infoBalanceLabel.innerText = currency + " Inventory:";
+            infoBalanceValue.innerText = (balances[currency.toLowerCase() + "_balance"] || 0).toLocaleString() + " " + currency;
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
+
+        } else if (direction === 'IND_SELL') {
+            const destCurrency = currency.split('_')[1];
+            inputLabel.innerText = "USD Amount to Send";
+            recvCurrencyLabel.innerText = destCurrency;
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = rates[currency].sell_rate + " " + destCurrency + " / USD";
+            infoSpreadLabel.innerText = "N/A (No profit tracked)";
+            infoBalanceLabel.innerText = destCurrency + " Inventory:";
+            infoBalanceValue.innerText = (balances[destCurrency.toLowerCase() + "_balance"] || 0).toLocaleString() + " " + destCurrency;
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
+
+        } else if (direction === 'IND_BUY') {
+            const srcCurrency = currency.split('_')[1];
+            inputLabel.innerText = srcCurrency + " Amount to Send";
+            recvCurrencyLabel.innerText = "USD";
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = "1 USD / " + rates[currency].buy_rate + " " + srcCurrency;
+            infoSpreadLabel.innerText = "N/A (No profit tracked)";
+            infoBalanceLabel.innerText = "USD Inventory:";
+            infoBalanceValue.innerText = balances.usd_balance.toLocaleString() + " USD";
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
+
+        } else if (direction === 'FEE') {
+            inputLabel.innerText = "Amount Receiver Gets (USD)";
+            recvCurrencyLabel.innerText = "USD";
+            recvTitle.innerText = "Sender Pays Total";
+            infoRateLabel.innerText = "Fixed Fee: $" + rates.usd_transfer_fee;
+            infoSpreadLabel.innerText = "0 (Spread-free transfer)";
+            infoBalanceLabel.innerText = "USD Rwanda Inventory:";
+            infoBalanceValue.innerText = balances.usd_rwanda_balance.toLocaleString() + " USD";
+            profitTitle.innerText = "USD Transfer Fee";
+            profitCurrency.innerText = "USD";
+        }
+    }
+
+    function updateFromSend() {
+        const amount = parseFloat(amountInput.value) || 0;
+        const { currency, direction } = getParams();
+        updateLabels(currency, direction);
+        const { received, profit } = computeFromSend(amount, currency, direction);
+
+        receivedInput.removeEventListener('input', onReceivedInput);
+        receivedInput.value = amount > 0 ? received.toFixed(2) : '';
+        receivedInput.addEventListener('input', onReceivedInput);
+
+        previewProfit.innerText = profit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function updateFromReceive() {
+        const received = parseFloat(receivedInput.value) || 0;
+        const { currency, direction } = getParams();
+        updateLabels(currency, direction);
+        const { send, profit } = computeFromReceive(received, currency, direction);
+
+        amountInput.removeEventListener('input', onAmountInput);
+        amountInput.value = received > 0 ? send.toFixed(2) : '';
+        amountInput.addEventListener('input', onAmountInput);
+
+        previewProfit.innerText = profit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function onAmountInput() {
+        lastEdited = 'send';
+        updateFromSend();
+    }
+
+    function onReceivedInput() {
+        lastEdited = 'receive';
+        updateFromReceive();
+    }
+
+    function resetPreview() {
+        setTimeout(() => {
+            receivedInput.value = '';
+            amountInput.value = '';
+            previewProfit.innerText = '0';
+            const { currency, direction } = getParams();
+            updateLabels(currency, direction);
+        }, 10);
+    }
+
+    function updatePreview() {
+        const { currency, direction } = getParams();
+        updateLabels(currency, direction);
+        if (lastEdited === 'receive') {
+            updateFromReceive();
+        } else {
+            updateFromSend();
+        }
+    }
+
+    amountInput.addEventListener('input', onAmountInput);
+    receivedInput.addEventListener('input', onReceivedInput);
+    typeSelect.addEventListener('change', () => {
+        lastEdited = 'send';
+        receivedInput.value = '';
+        amountInput.value = '';
+        previewProfit.innerText = '0';
+        updatePreview();
+    });
+
+    updatePreview();
+</script>
+{% endblock %}

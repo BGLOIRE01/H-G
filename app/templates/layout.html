@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H&G Money Transfer - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        if (savedTheme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+</head>
+
+<body>
+    {% if session.get('user') %}
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <img src="{{ url_for('static', filename='logo-edited.png') }}" alt="H&G Logo" class="sidebar-logo">
+        </div>
+        <div class="sidebar-menu">
+            <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">
+                <span>📊 Dashboard</span>
+            </a>
+            <a href="{{ url_for('calculator') }}" class="{% if request.endpoint == 'calculator' %}active{% endif %}">
+                <span>🧮 Calculator</span>
+            </a>
+            <a href="{{ url_for('transactions_history') }}"
+                class="{% if request.endpoint == 'transactions_history' %}active{% endif %}">
+                <span>📜 Transactions</span>
+            </a>
+            {% if session.get('role') == 'admin' %}
+            <a href="{{ url_for('rates_settings') }}"
+                class="{% if request.endpoint == 'rates_settings' %}active{% endif %}">
+                <span>⚙️ Rates Settings</span>
+            </a>
+            {% endif %}
+            <a href="{{ url_for('monthly_reports') }}"
+                class="{% if request.endpoint == 'monthly_reports' %}active{% endif %}">
+                <span>📂 Monthly Reports</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <p>Logged in as: <strong>{{ session.get('user') }}</strong></p>
+            <button id="theme-toggle" class="btn btn-secondary"
+                style="width: 100%; margin-top: 10px; margin-bottom: 10px; padding: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.9rem;">
+                <span id="theme-icon">🌓</span> Toggle Theme
+            </button>
+            <a href="{{ url_for('logout') }}"
+                style="color: #d32f2f; text-decoration: none; display: block; text-align: center; border-top: 1px solid var(--border-color); padding-top: 10px;">🚪
+                Logout</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="main-content" style="{% if not session.get('user') %}margin-left: 0; padding: 0;{% endif %}">
+        {% if session.get('user') %}
+        <header class="fade-in-down">
+            <h1>{% block page_title %}{% endblock %}</h1>
+            <div class="user-info">
+                <span>Welcome, {{ session.get('user') }}</span>
+                <span class="user-role">{{ session.get('role') | capitalize }}</span>
+            </div>
+        </header>
+        {% endif %}
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="card alert alert-{{ category }} slide-in"
+            style="background: {% if category == 'error' %}#ffebee{% else %}#e8f5e9{% endif %}; border-left: 5px solid {% if category == 'error' %}#f44336{% else %}#4caf50{% endif %};">
+            {{ message }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="page-content fade-in-up">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <script>
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+            });
+        }
+
+        // Staggered card animations on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const cards = document.querySelectorAll('.card');
+            cards.forEach((card, i) => {
+                card.style.animationDelay = `${i * 0.07}s`;
+                card.classList.add('card-appear');
+            });
+
+            // Sidebar ripple effect
+            const sidebarLinks = document.querySelectorAll('.sidebar-menu a');
+            sidebarLinks.forEach(link => {
+                link.addEventListener('click', function (e) {
+                    const ripple = document.createElement('span');
+                    ripple.classList.add('ripple');
+                    this.appendChild(ripple);
+                    setTimeout(() => ripple.remove(), 600);
+                });
+            });
+        });
+
+        // Smooth number counter for stat values
+        function animateNumber(el) {
+            const raw = el.innerText.replace(/[^0-9.]/g, '');
+            const target = parseFloat(raw);
+            if (isNaN(target) || target === 0) return;
+            const duration = 800;
+            const start = performance.now();
+
+            function update(now) {
+                const elapsed = now - start;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3);
+                const current = target * eased;
+                el.innerText = current.toLocaleString(undefined, {
+                    maximumFractionDigits: target % 1 !== 0 ? 2 : 0
+                });
+                if (progress < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.stat-value').forEach(el => {
+                setTimeout(() => animateNumber(el), 300);
+            });
+        });
+    </script>
+</body>
+
+</html>

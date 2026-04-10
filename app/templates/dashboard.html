@@ -1,0 +1,188 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}H&G Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid">
+    <div class="card stat-card">
+        <span class="stat-label">USD Inventory (US)</span>
+        <span class="stat-value" {% if balances.usd_balance < 0 %}style="color: red;" {% endif %}>{{
+            "{:,.2f}".format(balances.usd_balance) }} USD</span>
+    </div>
+    <div class="card stat-card" style="border-left: 4px solid var(--primary-color);">
+        <span class="stat-label">USD Inventory (Rwanda)</span>
+        <span class="stat-value" {% if balances.usd_rwanda_balance < 0 %}style="color: red;" {% endif %}>{{
+            "{:,.2f}".format(balances.usd_rwanda_balance) }} USD</span>
+    </div>
+    <div class="card stat-card">
+        <span class="stat-label">RWF Inventory</span>
+        <span class="stat-value" {% if balances.rwf_balance < 0 %}style="color: red;" {% endif %}>{{
+            "{:,.0f}".format(balances.rwf_balance) }} RWF</span>
+    </div>
+    <div class="card stat-card">
+        <span class="stat-label">CNY Inventory</span>
+        <span class="stat-value" {% if balances.cny_balance < 0 %}style="color: red;" {% endif %}>{{
+            "{:,.2f}".format(balances.cny_balance) }} CNY</span>
+    </div>
+    <div class="card stat-card">
+        <span class="stat-label">CAD Inventory</span>
+        <span class="stat-value" {% if balances.cad_balance < 0 %}style="color: red;" {% endif %}>{{
+            "{:,.2f}".format(balances.cad_balance) }} CAD</span>
+    </div>
+    <div class="card stat-card" style="border-left: 4px solid var(--secondary-color);">
+        <span class="stat-label">Daily Profit (RWF)</span>
+        <span class="stat-value" style="color: var(--secondary-color);">{{ "{:,.0f}".format(daily_profit) }} RWF</span>
+        <span class="stat-trend">Today's transactions only</span>
+    </div>
+    <div class="card stat-card" style="border-left: 4px solid var(--accent-color);">
+        <span class="stat-label">Total Profit (RWF)</span>
+        <span class="stat-value" style="color: var(--accent-color);">
+            {{ "{:,.0f}".format(balances.total_profit_rwf if balances.total_profit_rwf else 0) }} RWF
+        </span>
+        <span class="stat-trend">Cumulative — editable by admin</span>
+    </div>
+
+    {% if debts %}
+    {% set has_any_debt = namespace(found=false) %}
+    {% for currency, debt in debts.items() %}
+    {% if debt > 0 %}{% set has_any_debt.found = true %}{% endif %}
+    {% endfor %}
+    {% if has_any_debt.found %}
+    <div class="card stat-card" style="border-left: 4px solid #e53935;">
+        <span class="stat-label" style="color: #e53935;">⚠️ Pending Debts</span>
+        {% for currency, debt in debts.items() %}
+        {% if debt > 0 %}
+        <div style="display: flex; justify-content: space-between; margin-top: 0.4rem;">
+            <span style="font-weight: 600; font-size: 0.9rem;">{{ currency }}</span>
+            <span style="color: #e53935; font-weight: 700; font-size: 0.9rem;">{{ '{:,.2f}'.format(debt) }} owed</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <h3>Current Business Rates (Rwanda Hub)</h3>
+    <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+        {% for curr in ['USD', 'CNY', 'CAD'] %}
+        <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px;">
+            <p style="font-weight: bold; margin-bottom: 0.5rem; color: var(--primary-color);">{{ curr }} ↔ RWF</p>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="stat-label">Sell ({{ curr }}→RWF)</span>
+                <strong>{{ rates[curr].sell_rate }}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="stat-label">Buy (RWF→{{ curr }})</span>
+                <strong>{{ rates[curr].buy_rate }}</strong>
+            </div>
+            <div
+                style="margin-top: 0.5rem; text-align: right; border-top: 1px dotted var(--border-color); padding-top: 0.5rem;">
+                <span class="stat-label">Spread: </span>
+                <strong style="color: var(--secondary-color);">{{ spreads[curr] }} RWF</strong>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h3 style="margin-top: 2rem;">Independent Pairs</h3>
+    <div class="grid" style="grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 1rem;">
+        {% for curr, label, dest in [('USD_CAD', 'USD ↔ CAD', 'CAD'), ('USD_CNY', 'USD ↔ CNY', 'CNY')] %}
+        <div style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px;">
+            <p style="font-weight: bold; margin-bottom: 0.5rem; color: var(--primary-color);">{{ label }}</p>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="stat-label">Sell (USD→{{ dest }})</span>
+                <strong>{{ rates[curr].sell_rate }}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span class="stat-label">Buy ({{ dest }}→USD)</span>
+                <strong>{{ rates[curr].buy_rate }}</strong>
+            </div>
+            <div
+                style="margin-top: 0.5rem; text-align: right; border-top: 1px dotted var(--border-color); padding-top: 0.5rem;">
+                <span class="stat-label">Spread: </span>
+                <strong style="color: var(--secondary-color);">{{ spreads[curr] }} {{ dest }}</strong>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mt-2" style="display: flex; gap: 1rem;">
+        <a href="{{ url_for('calculator') }}" class="btn btn-primary">New Transaction</a>
+        {% if session.role == 'admin' %}
+        <a href="{{ url_for('rates_settings') }}" class="btn btn-secondary">Update Rates</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3>Recent Activity</h3>
+        <a href="{{ url_for('transactions_history') }}" class="btn btn-secondary">Full Log</a>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th class="text-right">Foreign Amt</th>
+                <th class="text-right">RWF/Other Amt</th>
+                <th class="text-right">Rate Used</th>
+                <th class="text-right">Profit/Fee</th>
+                <th>Client</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in recent %}
+            <tr>
+                <td>{{ tx.timestamp.split(' ')[1] }}</td>
+                <td>
+                    <span
+                        style="padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; background: #f0f0f0; color: #333;">
+                        {{ tx.transaction_type.replace('_', ' ') }}
+                    </span>
+                </td>
+                <td class="text-right">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'USD_TO_CNY'] %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} USD
+                    {% elif tx.transaction_type in ['CAD_TO_USD', 'CNY_TO_USD'] %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} {{ tx.transaction_type.split('_')[0] }}
+                    {% else %}
+                    {{ "{:,.2f}".format(tx.foreign_amount) }} {{ tx.foreign_currency }}
+                    {% endif %}
+                </td>
+                <td class="text-right">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'USD_TO_CNY'] %}
+                    {{ "{:,.2f}".format(tx.rwf_amount) }} {{ tx.transaction_type.split('_')[2] }}
+                    {% elif tx.transaction_type in ['CAD_TO_USD', 'CNY_TO_USD'] %}
+                    {{ "{:,.2f}".format(tx.rwf_amount) }} USD
+                    {% else %}
+                    {{ "{:,.0f}".format(tx.rwf_amount) }}
+                    {% endif %}
+                </td>
+                <td class="text-right">{{ tx.rate_used if tx.rate_used > 0 else '-' }}</td>
+                <td class="text-right"
+                    style="font-weight: 600; color: {% if tx.profit > 0 %}var(--secondary-color){% else %}var(--text-secondary){% endif %};">
+                    {% if tx.transaction_type in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD'] %}
+                    -
+                    {% else %}
+                    {{ "{:,.0f}".format(tx.profit) if tx.profit > 0 else "-" }}
+                    {% if tx.fee > 0 %}
+                    <span style="color: var(--primary-color)">({{ "{:,.2f}".format(tx.fee) }} Fee)</span>
+                    {% endif %}
+                    {% endif %}
+                </td>
+                <td>{{ tx.client_name }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No recent
+                    transactions</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

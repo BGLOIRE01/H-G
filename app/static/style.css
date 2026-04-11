@@ -15,6 +15,7 @@
     --shadow: 0 4px 24px rgba(26, 35, 126, 0.08);
     --shadow-hover: 0 8px 32px rgba(26, 35, 126, 0.16);
     --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    --sidebar-width: 260px;
 }
 
 [data-theme="dark"] {
@@ -40,7 +41,6 @@
     font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
 }
 
-/* ── ANIMATED BACKGROUND — pure CSS, no blocking elements ── */
 body {
     background-color: var(--bg-color);
     color: var(--text-primary);
@@ -50,17 +50,91 @@ body {
     overflow-x: hidden;
 }
 
+/* ── MOBILE TOPBAR ── */
+.mobile-topbar {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border-color);
+    z-index: 200;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+}
+
+.mobile-topbar .mobile-logo {
+    height: 36px;
+    object-fit: contain;
+}
+
+.hamburger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 6px;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.hamburger:hover {
+    background: rgba(26, 35, 126, 0.08);
+}
+
+.hamburger span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    transition: var(--transition);
+}
+
+.hamburger.open span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.hamburger.open span:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger.open span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+/* ── SIDEBAR OVERLAY (mobile) ── */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 149;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.visible {
+    opacity: 1;
+}
+
 /* ── SIDEBAR ── */
 .sidebar {
-    width: 260px;
+    width: var(--sidebar-width);
     background-color: var(--sidebar-bg);
     border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
     position: fixed;
     height: 100vh;
-    z-index: 100;
-    transition: background-color 0.5s ease, border-color 0.5s ease;
+    z-index: 150;
+    transition: background-color 0.5s ease, border-color 0.5s ease, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
 }
 
 .sidebar-header {
@@ -111,7 +185,6 @@ body {
     padding-left: 2.3rem;
 }
 
-/* Ripple */
 .ripple {
     position: absolute;
     border-radius: 50%;
@@ -139,11 +212,12 @@ body {
 
 /* ── MAIN CONTENT ── */
 .main-content {
-    margin-left: 260px;
+    margin-left: var(--sidebar-width);
     flex: 1;
     padding: 2rem;
     position: relative;
     z-index: 1;
+    min-width: 0;
 }
 
 header {
@@ -151,12 +225,19 @@ header {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+header h1 {
+    font-size: 1.5rem;
 }
 
 .user-info {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .user-role {
@@ -275,7 +356,7 @@ header {
 /* ── GRID ── */
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 1.5rem;
 }
 
@@ -315,11 +396,19 @@ header {
     color: #e53935;
 }
 
-/* ── TABLES ── */
+/* ── TABLES — scrollable on mobile ── */
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 1rem;
+    min-width: 540px;
 }
 
 th {
@@ -331,11 +420,13 @@ th {
     font-size: 0.85rem;
     letter-spacing: 0.03em;
     text-transform: uppercase;
+    white-space: nowrap;
 }
 
 td {
     padding: 0.9rem 1rem;
     border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
 }
 
 tr {
@@ -449,6 +540,7 @@ select:hover {
     background: linear-gradient(135deg, var(--primary-dark), var(--primary-color), var(--primary-light));
     background-size: 300% 300%;
     animation: gradientShift 8s ease infinite;
+    padding: 1rem;
 }
 
 @keyframes gradientShift {
@@ -464,7 +556,8 @@ select:hover {
 }
 
 .login-card {
-    width: 420px;
+    width: 100%;
+    max-width: 420px;
     background: var(--card-bg);
     padding: 3rem;
     border-radius: 24px;
@@ -523,7 +616,182 @@ select:hover {
     background: var(--primary-light);
 }
 
-/* ── THEME TRANSITION ── */
 html {
     transition: background-color 0.4s ease;
+}
+
+/* ════════════════════════════════════════
+   RESPONSIVE — TABLET (max 1024px)
+════════════════════════════════════════ */
+@media (max-width: 1024px) {
+    .grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .main-content {
+        padding: 1.5rem;
+    }
+}
+
+/* ════════════════════════════════════════
+   RESPONSIVE — MOBILE (max 768px)
+════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* Show mobile topbar */
+    .mobile-topbar {
+        display: flex;
+    }
+
+    /* Show overlay div */
+    .sidebar-overlay {
+        display: block;
+    }
+
+    /* Sidebar slides off screen by default */
+    .sidebar {
+        transform: translateX(-100%);
+        top: 0;
+        box-shadow: none;
+    }
+
+    /* Sidebar open state */
+    .sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Main content takes full width, pushed down by topbar */
+    .main-content {
+        margin-left: 0;
+        padding: 1rem;
+        padding-top: calc(56px + 1rem);
+    }
+
+    /* Header stacks on mobile */
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+
+    header h1 {
+        font-size: 1.2rem;
+    }
+
+    /* Grid goes single column */
+    .grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    /* Stat values smaller */
+    .stat-value {
+        font-size: 1.4rem;
+    }
+
+    /* Cards less padding */
+    .card {
+        padding: 1rem;
+        border-radius: 12px;
+    }
+
+    /* Tables scroll horizontally */
+    table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Login card full width on small screens */
+    .login-card {
+        padding: 2rem 1.5rem;
+    }
+
+    /* Filter form stacks */
+    .filter-form {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    .filter-form .form-group {
+        margin-bottom: 0.75rem;
+    }
+
+    /* Rates grid goes single column */
+    .rates-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Dashboard rate cards */
+    .rate-cards-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Buttons full width on mobile forms */
+    .btn-mobile-full {
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+
+    /* Flex rows wrap */
+    .flex-row {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    /* Hide less important table columns on mobile */
+    .hide-mobile {
+        display: none;
+    }
+
+    /* Transaction type badge smaller */
+    .tx-badge {
+        font-size: 0.65rem;
+        padding: 1px 6px;
+    }
+
+    /* Reports table */
+    .reports-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* ════════════════════════════════════════
+   RESPONSIVE — SMALL MOBILE (max 480px)
+════════════════════════════════════════ */
+@media (max-width: 480px) {
+    .main-content {
+        padding: 0.75rem;
+        padding-top: calc(56px + 0.75rem);
+    }
+
+    .card {
+        padding: 0.875rem;
+        margin-bottom: 1rem;
+    }
+
+    .stat-value {
+        font-size: 1.2rem;
+    }
+
+    .btn {
+        padding: 0.7rem 1.2rem;
+        font-size: 0.9rem;
+    }
+
+    header h1 {
+        font-size: 1.1rem;
+    }
+
+    .login-card {
+        padding: 1.5rem 1rem;
+        border-radius: 16px;
+    }
+
+    .login-logo {
+        transform: scale(1.5);
+        max-height: 300px;
+    }
 }

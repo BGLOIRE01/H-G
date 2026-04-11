@@ -16,7 +16,21 @@
 
 <body>
     {% if session.get('user') %}
-    <div class="sidebar">
+
+    <!-- Mobile top bar -->
+    <div class="mobile-topbar">
+        <img src="{{ url_for('static', filename='logo-edited.png') }}" alt="H&G Logo" class="mobile-logo">
+        <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+    </div>
+
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <img src="{{ url_for('static', filename='logo-edited.png') }}" alt="H&G Logo" class="sidebar-logo">
         </div>
@@ -83,6 +97,7 @@
     </div>
 
     <script>
+        // ── THEME TOGGLE ──
         const themeToggleBtn = document.getElementById('theme-toggle');
         if (themeToggleBtn) {
             themeToggleBtn.addEventListener('click', () => {
@@ -93,7 +108,45 @@
             });
         }
 
-        // Staggered card animations on page load
+        // ── HAMBURGER MENU ──
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+
+        function openSidebar() {
+            sidebar.classList.add('open');
+            overlay.classList.add('visible');
+            hamburger.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeSidebar() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('visible');
+            hamburger.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        if (hamburger) {
+            hamburger.addEventListener('click', () => {
+                sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+            });
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', closeSidebar);
+        }
+
+        // Close sidebar when a nav link is clicked on mobile
+        if (sidebar) {
+            sidebar.querySelectorAll('.sidebar-menu a').forEach(link => {
+                link.addEventListener('click', () => {
+                    if (window.innerWidth <= 768) closeSidebar();
+                });
+            });
+        }
+
+        // ── CARD ANIMATIONS ──
         document.addEventListener('DOMContentLoaded', () => {
             const cards = document.querySelectorAll('.card');
             cards.forEach((card, i) => {
@@ -113,7 +166,7 @@
             });
         });
 
-        // Smooth number counter for stat values
+        // ── NUMBER COUNTER ANIMATION ──
         function animateNumber(el) {
             const raw = el.innerText.replace(/[^0-9.]/g, '');
             const target = parseFloat(raw);

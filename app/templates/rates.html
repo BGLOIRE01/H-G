@@ -13,7 +13,7 @@
             {% for curr in ['USD', 'CNY', 'CAD'] %}
             <div class="card" style="box-shadow: none; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
                 <h4 style="margin-bottom: 1rem; color: var(--primary-color);">{{ curr }} ↔ RWF Pair</h4>
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
                     <div class="form-group">
                         <label>Sell Rate ({{ curr }} → RWF)</label>
                         <p style="font-size: 0.75rem; color: #757575; margin-bottom: 5px;">Business receives {{ curr }},
@@ -41,7 +41,7 @@
             {% for curr, label, dest in [('USD_CAD', 'USD ↔ CAD', 'CAD'), ('USD_CNY', 'USD ↔ CNY', 'CNY')] %}
             <div class="card" style="box-shadow: none; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
                 <h4 style="margin-bottom: 1rem; color: var(--primary-color);">{{ label }} Pair</h4>
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
                     <div class="form-group">
                         <label>Sell Rate (USD → {{ dest }})</label>
                         <p style="font-size: 0.75rem; color: #757575; margin-bottom: 5px;">Business receives USD, gives
@@ -70,10 +70,9 @@
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem;">
-                <p style="font-size: 0.8rem; color: var(--text-secondary);">
-                    Last Updated: {{ rates.last_updated }}
-                </p>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <p style="font-size: 0.8rem; color: var(--text-secondary);">Last Updated: {{ rates.last_updated }}</p>
                 <button type="submit" class="btn btn-primary">Save All Rates</button>
             </div>
         </form>
@@ -91,7 +90,7 @@
                     <option value="RWF">RWF Inventory</option>
                     <option value="CNY">CNY Inventory</option>
                     <option value="CAD">CAD Inventory</option>
-                    <option value="USD_RWANDA">USD Rwanda Inventory (Local)</option>
+                    <option value="USD_RWANDA">USD Rwanda Inventory</option>
                     <option value="PROFIT_RWF">Profit (RWF)</option>
                 </select>
             </div>
@@ -112,8 +111,7 @@
         {% if debts %}
         <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
             <h3>Pending Debts</h3>
-            <p class="stat-label" style="margin-bottom: 1rem;">Outstanding foreign currency owed from empty batch
-                transactions.</p>
+            <p class="stat-label" style="margin-bottom: 1rem;">Outstanding foreign currency owed.</p>
             {% set has_debt = namespace(found=false) %}
             {% for currency, debt in debts.items() %}
             {% if debt > 0 %}
@@ -138,82 +136,81 @@
                 <li><strong>Buy Rate:</strong> Customer pays RWF to get foreign.</li>
                 <li><strong>Sell Rate:</strong> Business pays RWF to get foreign.</li>
                 <li><strong>Spread:</strong> Your profit per 1 unit of foreign currency.</li>
-                <li><strong>Profit:</strong> Editable by admin — use "Profit (RWF)" option above.</li>
+                <li><strong>Profit:</strong> Editable by admin via adjustment above.</li>
             </ul>
         </div>
     </div>
 </div>
 
-<!-- ── FIFO BATCH VISIBILITY ── -->
-<div class="card" style="grid-column: span 3; margin-top: 0;">
+<div class="card" style="margin-top: 0;">
     <h3>FIFO Batch Ledger</h3>
-    <p class="stat-label" style="margin-bottom: 1.5rem;">Current inventory batches per currency — oldest consumed first
-        when paying out.</p>
+    <p class="stat-label" style="margin-bottom: 1.5rem;">Current inventory batches per currency — oldest consumed first.
+    </p>
 
     {% for currency in ['USD', 'CNY', 'CAD'] %}
     <div style="margin-bottom: 2rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <h4 style="color: var(--primary-color);">{{ currency }} Batches</h4>
             {% if batches and batches[currency] %}
             {% set total_remaining = namespace(val=0) %}
-            {% for b in batches[currency] %}
-            {% set total_remaining.val = total_remaining.val + b.remaining %}
-            {% endfor %}
+            {% for b in batches[currency] %}{% set total_remaining.val = total_remaining.val + b.remaining %}{% endfor
+            %}
             <span style="font-size: 0.85rem; color: var(--secondary-color); font-weight: 700;">
-                Total Available: {{ '{:,.4f}'.format(total_remaining.val) }} {{ currency }}
+                Total: {{ '{:,.4f}'.format(total_remaining.val) }} {{ currency }}
             </span>
             {% endif %}
         </div>
 
         {% if batches and batches[currency] %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Batch #</th>
-                    <th>Date Created</th>
-                    <th class="text-right">Original Amount</th>
-                    <th class="text-right">Remaining</th>
-                    <th class="text-right">Consumed</th>
-                    <th class="text-right">Sell Rate Used</th>
-                    <th class="text-right">Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for batch in batches[currency] %}
-                {% set consumed = batch.original_amount - batch.remaining %}
-                {% set pct_remaining = (batch.remaining / batch.original_amount * 100) if batch.original_amount > 0 else
-                0 %}
-                <tr>
-                    <td style="font-weight: 600; color: var(--primary-color);">#{{ batch.id }}</td>
-                    <td style="font-size: 0.85rem; color: var(--text-secondary);">{{ batch.timestamp }}</td>
-                    <td class="text-right">{{ '{:,.4f}'.format(batch.original_amount) }} {{ currency }}</td>
-                    <td class="text-right"
-                        style="font-weight: 700; color: {% if pct_remaining > 50 %}var(--secondary-color){% elif pct_remaining > 20 %}var(--accent-color){% else %}#e53935{% endif %};">
-                        {{ '{:,.4f}'.format(batch.remaining) }} {{ currency }}
-                    </td>
-                    <td class="text-right" style="color: var(--text-secondary);">
-                        {{ '{:,.4f}'.format(consumed) }} {{ currency }}
-                    </td>
-                    <td class="text-right" style="font-family: 'DM Mono', monospace;">
-                        {{ '{:,.2f}'.format(batch.sell_rate) }} RWF
-                    </td>
-                    <td class="text-right">
-                        <!-- Progress bar -->
-                        <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end;">
-                            <div
-                                style="width: 80px; height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden;">
+        <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Batch #</th>
+                        <th class="hide-mobile">Date</th>
+                        <th class="text-right">Original</th>
+                        <th class="text-right">Remaining</th>
+                        <th class="text-right hide-mobile">Consumed</th>
+                        <th class="text-right hide-mobile">Sell Rate</th>
+                        <th class="text-right">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in batches[currency] %}
+                    {% set consumed = batch.original_amount - batch.remaining %}
+                    {% set pct_remaining = (batch.remaining / batch.original_amount * 100) if batch.original_amount > 0
+                    else 0 %}
+                    <tr>
+                        <td style="font-weight: 600; color: var(--primary-color);">#{{ batch.id }}</td>
+                        <td class="hide-mobile" style="font-size: 0.85rem; color: var(--text-secondary);">{{
+                            batch.timestamp }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(batch.original_amount) }}</td>
+                        <td class="text-right"
+                            style="font-weight: 700; color: {% if pct_remaining > 50 %}var(--secondary-color){% elif pct_remaining > 20 %}var(--accent-color){% else %}#e53935{% endif %};">
+                            {{ '{:,.2f}'.format(batch.remaining) }}
+                        </td>
+                        <td class="text-right hide-mobile" style="color: var(--text-secondary);">{{
+                            '{:,.2f}'.format(consumed) }}</td>
+                        <td class="text-right hide-mobile" style="font-family: 'DM Mono', monospace;">{{
+                            '{:,.2f}'.format(batch.sell_rate) }} RWF</td>
+                        <td class="text-right">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end;">
                                 <div
-                                    style="width: {{ pct_remaining | round(0) }}%; height: 100%; background: {% if pct_remaining > 50 %}var(--secondary-color){% elif pct_remaining > 20 %}var(--accent-color){% else %}#e53935{% endif %}; border-radius: 3px; transition: width 0.5s ease;">
+                                    style="width: 60px; height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden;">
+                                    <div
+                                        style="width: {{ pct_remaining | round(0) }}%; height: 100%; background: {% if pct_remaining > 50 %}var(--secondary-color){% elif pct_remaining > 20 %}var(--accent-color){% else %}#e53935{% endif %}; border-radius: 3px;">
+                                    </div>
                                 </div>
+                                <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">{{
+                                    pct_remaining | round(1) }}%</span>
                             </div>
-                            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">{{
-                                pct_remaining | round(1) }}%</span>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% else %}
         <div
             style="padding: 1.5rem; text-align: center; color: var(--text-secondary); background: rgba(0,0,0,0.02); border-radius: 8px; border: 1px dashed var(--border-color);">

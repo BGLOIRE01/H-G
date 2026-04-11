@@ -1,6 +1,6 @@
 import os
-import json
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,14 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = 'hg_money_transfer_secret_key'
 
-# Paths — fixed for Docker volume persistence
-BASE_DIR = '/app'
-DATA_DIR = '/app/data'
-RATES_FILE = os.path.join(DATA_DIR, 'rates.json')
-BALANCES_FILE = os.path.join(DATA_DIR, 'balances.json')
-DB_FILE = os.path.join(DATA_DIR, 'transactions.db')
-
-os.makedirs(DATA_DIR, exist_ok=True)
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 USERS = {
     "admin": {"password": generate_password_hash("admin123"), "role": "admin"},
@@ -23,119 +16,108 @@ USERS = {
 }
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
-def init_db():
+# ──────────────────────────────────────────────
+# BALANCES
+# ──────────────────────────────────────────────
+
+def load_balances():
     conn = get_db()
-    cursor = conn.cursor()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM balances WHERE id = 1")
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "usd_balance": 0.0,
+        "rwf_balance": 0.0,
+        "cny_balance": 0.0,
+        "cad_balance": 0.0,
+        "usd_rwanda_balance": 0.0,
+        "total_profit_rwf": 0.0,
+        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transactions'")
-    table_exists = cursor.fetchone()
+def save_balances(balances):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE balances SET
+            usd_balance = %s,
+            rwf_balance = %s,
+            cny_balance = %s,
+            cad_balance = %s,
+            usd_rwanda_balance = %s,
+            total_profit_rwf = %s,
+            last_updated = %s
+        WHERE id = 1
+    """, (
+        balances['usd_balance'],
+        balances['rwf_balance'],
+        balances['cny_balance'],
+        balances['cad_balance'],
+        balances['usd_rwanda_balance'],
+        balances['total_profit_rwf'],
+        balances['last_updated']
+    ))
+    conn.commit()
+    conn.close()
 
-    if table_exists:
-        cursor.execute("PRAGMA table_info(transactions)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if 'foreign_amount' not in columns or 'profit' not in columns or 'fee' not in columns:
-            print("Old schema detected. Resetting database...")
-            cursor.execute("DROP TABLE transactions")
-            conn.commit()
+# ──────────────────────────────────────────────
+# RATES
+# ──────────────────────────────────────────────
 
-    # Main transactions table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            transaction_type TEXT NOT NULL,
-            foreign_currency TEXT,
-            foreign_amount REAL NOT NULL,
-            rwf_amount REAL NOT NULL,
-            rate_used REAL NOT NULL,
-            profit REAL NOT NULL,
-            fee REAL DEFAULT 0 NOT NULL,
-            client_name TEXT NOT NULL
-        )
-    ''')
+def load_rates():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM rates WHERE id = 1")
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return {
+            "USD": {"sell_rate": row['usd_sell'], "buy_rate": row['usd_buy']},
+            "CNY": {"sell_rate": row['cny_sell'], "buy_rate": row['cny_buy']},
+            "CAD": {"sell_rate": row['cad_sell'], "buy_rate": row['cad_buy']},
+            "USD_CAD": {"sell_rate": row['usd_cad_sell'], "buy_rate": row['usd_cad_buy']},
+            "USD_CNY": {"sell_rate": row['usd_cny_sell'], "buy_rate": row['usd_cny_buy']},
+            "usd_transfer_fee": row['usd_transfer_fee'],
+            "last_updated": row['last_updated']
+        }
+    return {
+        "USD": {"sell_rate": 1440.0, "buy_rate": 1485.0},
+        "CNY": {"sell_rate": 200.0, "buy_rate": 210.0},
+        "CAD": {"sell_rate": 1050.0, "buy_rate": 1080.0},
+        "USD_CAD": {"sell_rate": 135.0, "buy_rate": 145.0},
+        "USD_CNY": {"sell_rate": 7.2, "buy_rate": 7.6},
+        "usd_transfer_fee": 5.0,
+        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-    # FIFO batches table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS currency_batches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_id INTEGER NOT NULL,
-            timestamp TEXT NOT NULL,
-            currency TEXT NOT NULL,
-            original_amount REAL NOT NULL,
-            remaining REAL NOT NULL,
-            sell_rate REAL NOT NULL
-        )
-    ''')
-
-    # Debt table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS currency_debts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_id INTEGER NOT NULL,
-            timestamp TEXT NOT NULL,
-            currency TEXT NOT NULL,
-            debt_amount REAL NOT NULL,
-            buy_rate_at_debt REAL NOT NULL,
-            remaining_debt REAL NOT NULL
-        )
-    ''')
-
-    # Batch consumption log
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS batch_consumption_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_id INTEGER NOT NULL,
-            batch_id INTEGER NOT NULL,
-            consumed_amount REAL NOT NULL
-        )
-    ''')
-
-    # Debt payment log
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS debt_payment_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_id INTEGER NOT NULL,
-            debt_id INTEGER NOT NULL,
-            paid_amount REAL NOT NULL
-        )
-    ''')
-
-    # Migrations
-    cursor.execute("PRAGMA table_info(transactions)")
-    columns = [column[1] for column in cursor.fetchall()]
-
-    if 'foreign_currency' not in columns:
-        cursor.execute("ALTER TABLE transactions ADD COLUMN foreign_currency TEXT")
-    if 'foreign_amount' not in columns:
-        if 'usd_amount' in columns:
-            cursor.execute("ALTER TABLE transactions RENAME COLUMN usd_amount TO foreign_amount")
-        else:
-            cursor.execute("ALTER TABLE transactions ADD COLUMN foreign_amount REAL DEFAULT 0")
-
-    cursor.execute("UPDATE transactions SET foreign_currency = 'USD' WHERE foreign_currency IS NULL")
-
-    cursor.execute("PRAGMA table_info(transactions)")
-    columns = [column[1] for column in cursor.fetchall()]
-    if 'staff_member' in columns and 'client_name' not in columns:
-        cursor.execute("ALTER TABLE transactions RENAME COLUMN staff_member TO client_name")
-        conn.commit()
-
-    # Migrate currency_batches — add transaction_id if missing
-    cursor.execute("PRAGMA table_info(currency_batches)")
-    batch_cols = [col[1] for col in cursor.fetchall()]
-    if 'transaction_id' not in batch_cols:
-        cursor.execute("ALTER TABLE currency_batches ADD COLUMN transaction_id INTEGER NOT NULL DEFAULT 0")
-
-    # Migrate currency_debts — add transaction_id if missing
-    cursor.execute("PRAGMA table_info(currency_debts)")
-    debt_cols = [col[1] for col in cursor.fetchall()]
-    if 'transaction_id' not in debt_cols:
-        cursor.execute("ALTER TABLE currency_debts ADD COLUMN transaction_id INTEGER NOT NULL DEFAULT 0")
-
+def save_rates(rates):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE rates SET
+            usd_sell = %s, usd_buy = %s,
+            cny_sell = %s, cny_buy = %s,
+            cad_sell = %s, cad_buy = %s,
+            usd_cad_sell = %s, usd_cad_buy = %s,
+            usd_cny_sell = %s, usd_cny_buy = %s,
+            usd_transfer_fee = %s,
+            last_updated = %s
+        WHERE id = 1
+    """, (
+        rates['USD']['sell_rate'], rates['USD']['buy_rate'],
+        rates['CNY']['sell_rate'], rates['CNY']['buy_rate'],
+        rates['CAD']['sell_rate'], rates['CAD']['buy_rate'],
+        rates['USD_CAD']['sell_rate'], rates['USD_CAD']['buy_rate'],
+        rates['USD_CNY']['sell_rate'], rates['USD_CNY']['buy_rate'],
+        rates['usd_transfer_fee'],
+        rates['last_updated']
+    ))
     conn.commit()
     conn.close()
 
@@ -144,26 +126,26 @@ def init_db():
 # ──────────────────────────────────────────────
 
 def get_total_debt(conn, currency):
-    result = conn.execute('''
+    cur = conn.cursor()
+    cur.execute("""
         SELECT SUM(remaining_debt) as total FROM currency_debts
-        WHERE currency = ? AND remaining_debt > 0
-    ''', (currency,)).fetchone()
+        WHERE currency = %s AND remaining_debt > 0
+    """, (currency,))
+    result = cur.fetchone()
     return result['total'] if result['total'] else 0.0
 
 
 def add_batch(conn, currency, amount, sell_rate, transaction_id):
-    """
-    Pay off debts first, then create batch with remainder.
-    Returns profit from debt repayment.
-    """
     profit_from_debt = 0.0
     remaining_to_add = amount
 
-    debts = conn.execute('''
+    cur = conn.cursor()
+    cur.execute("""
         SELECT * FROM currency_debts
-        WHERE currency = ? AND remaining_debt > 0
+        WHERE currency = %s AND remaining_debt > 0
         ORDER BY id ASC
-    ''', (currency,)).fetchall()
+    """, (currency,))
+    debts = cur.fetchall()
 
     for debt in debts:
         if remaining_to_add <= 0:
@@ -176,38 +158,35 @@ def add_batch(conn, currency, amount, sell_rate, transaction_id):
         paid = min(debt_remaining, remaining_to_add)
         profit_from_debt += paid * (buy_rate_at_debt - sell_rate)
 
-        conn.execute('''
-            UPDATE currency_debts SET remaining_debt = ? WHERE id = ?
-        ''', (debt_remaining - paid, debt_id))
+        cur.execute("""
+            UPDATE currency_debts SET remaining_debt = %s WHERE id = %s
+        """, (debt_remaining - paid, debt_id))
 
-        conn.execute('''
+        cur.execute("""
             INSERT INTO debt_payment_log (transaction_id, debt_id, paid_amount)
-            VALUES (?, ?, ?)
-        ''', (transaction_id, debt_id, paid))
+            VALUES (%s, %s, %s)
+        """, (transaction_id, debt_id, paid))
 
         remaining_to_add -= paid
 
     if remaining_to_add > 0:
-        conn.execute('''
+        cur.execute("""
             INSERT INTO currency_batches (transaction_id, timestamp, currency, original_amount, remaining, sell_rate)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (transaction_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (transaction_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
               currency, remaining_to_add, remaining_to_add, sell_rate))
 
     return profit_from_debt
 
 
 def consume_batches(conn, currency, amount_needed, buy_rate, transaction_id):
-    """
-    Consume FIFO batches oldest first.
-    Create debt if batches exhausted.
-    Returns total profit.
-    """
-    batches = conn.execute('''
+    cur = conn.cursor()
+    cur.execute("""
         SELECT * FROM currency_batches
-        WHERE currency = ? AND remaining > 0
+        WHERE currency = %s AND remaining > 0
         ORDER BY id ASC
-    ''', (currency,)).fetchall()
+    """, (currency,))
+    batches = cur.fetchall()
 
     total_profit = 0.0
     remaining_needed = amount_needed
@@ -223,22 +202,22 @@ def consume_batches(conn, currency, amount_needed, buy_rate, transaction_id):
         consumed = min(batch_remaining, remaining_needed)
         total_profit += consumed * (buy_rate - batch_sell_rate)
 
-        conn.execute('''
-            UPDATE currency_batches SET remaining = ? WHERE id = ?
-        ''', (batch_remaining - consumed, batch_id))
+        cur.execute("""
+            UPDATE currency_batches SET remaining = %s WHERE id = %s
+        """, (batch_remaining - consumed, batch_id))
 
-        conn.execute('''
+        cur.execute("""
             INSERT INTO batch_consumption_log (transaction_id, batch_id, consumed_amount)
-            VALUES (?, ?, ?)
-        ''', (transaction_id, batch_id, consumed))
+            VALUES (%s, %s, %s)
+        """, (transaction_id, batch_id, consumed))
 
         remaining_needed -= consumed
 
     if remaining_needed > 0:
-        conn.execute('''
+        cur.execute("""
             INSERT INTO currency_debts (transaction_id, timestamp, currency, debt_amount, buy_rate_at_debt, remaining_debt)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
             transaction_id,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             currency,
@@ -250,52 +229,8 @@ def consume_batches(conn, currency, amount_needed, buy_rate, transaction_id):
     return total_profit
 
 # ──────────────────────────────────────────────
-# JSON HELPERS
+# APP ROUTES
 # ──────────────────────────────────────────────
-
-def load_json(filepath, defaults):
-    if not os.path.exists(filepath):
-        with open(filepath, 'w') as f:
-            json.dump(defaults, f, indent=4)
-        return defaults
-    with open(filepath, 'r') as f:
-        return json.load(f)
-
-def save_json(filepath, data):
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=4)
-
-def load_rates():
-    return load_json(RATES_FILE, {
-        "USD": {"sell_rate": 1440.0, "buy_rate": 1485.0},
-        "CNY": {"sell_rate": 200.0, "buy_rate": 210.0},
-        "CAD": {"sell_rate": 1050.0, "buy_rate": 1080.0},
-        "USD_CAD": {"sell_rate": 135.0, "buy_rate": 145.0},
-        "USD_CNY": {"sell_rate": 7.2, "buy_rate": 7.6},
-        "usd_transfer_fee": 5.0,
-        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
-
-def load_balances():
-    return load_json(BALANCES_FILE, {
-        "usd_balance": 10000.0,
-        "rwf_balance": 15000000.0,
-        "cny_balance": 0.0,
-        "cad_balance": 0.0,
-        "usd_rwanda_balance": 0.0,
-        "total_profit_rwf": 0.0,
-        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
-
-# ──────────────────────────────────────────────
-# APP SETUP
-# ──────────────────────────────────────────────
-
-@app.before_request
-def setup():
-    if not hasattr(app, '_initialized'):
-        init_db()
-        app._initialized = True
 
 @app.route('/')
 def index():
@@ -343,20 +278,22 @@ def dashboard():
 
     conn = get_db()
     today = datetime.now().strftime("%Y-%m-%d")
+    cur = conn.cursor()
 
-    stats = conn.execute('''
+    cur.execute("""
         SELECT SUM(profit) as total_profit, COUNT(id) as total_count
         FROM transactions
-        WHERE timestamp LIKE ?
-    ''', (f'{today}%',)).fetchone()
-
+        WHERE timestamp LIKE %s
+    """, (f'{today}%',))
+    stats = cur.fetchone()
     daily_profit = stats['total_profit'] if stats['total_profit'] else 0
 
     debts = {}
     for currency in ['USD', 'CNY', 'CAD']:
         debts[currency] = get_total_debt(conn, currency)
 
-    recent = conn.execute('SELECT * FROM transactions ORDER BY id DESC LIMIT 5').fetchall()
+    cur.execute('SELECT * FROM transactions ORDER BY id DESC LIMIT 5')
+    recent = cur.fetchall()
     conn.close()
 
     return render_template('dashboard.html',
@@ -396,6 +333,7 @@ def calculator():
         fee = 0.0
 
         conn = get_db()
+        cur = conn.cursor()
 
         # ── RWF HUB PAIRS (USD, CNY, CAD ↔ RWF) ──
         if '_TO_' in tx_type and 'RWF' in tx_type:
@@ -404,51 +342,48 @@ def calculator():
             to_curr = parts[1]
 
             if to_curr == 'RWF':
-                # FOREIGN → RWF
                 foreign_currency = from_curr
                 foreign_amount = amount
                 rate = rates[foreign_currency]['sell_rate']
                 rwf_amount = foreign_amount * rate
 
-                cursor = conn.execute('''
+                cur.execute("""
                     INSERT INTO transactions
                     (timestamp, transaction_type, foreign_currency, foreign_amount, rwf_amount, rate_used, profit, fee, client_name)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
                       foreign_amount, rwf_amount, rate, 0.0, fee, client_name))
-                tx_id = cursor.lastrowid
+                tx_id = cur.fetchone()['id']
 
                 profit = add_batch(conn, foreign_currency, foreign_amount, rate, tx_id)
-                conn.execute('UPDATE transactions SET profit = ? WHERE id = ?', (profit, tx_id))
+                cur.execute('UPDATE transactions SET profit = %s WHERE id = %s', (profit, tx_id))
 
                 balances[f"{foreign_currency.lower()}_balance"] += foreign_amount
                 balances['rwf_balance'] -= rwf_amount
 
             elif from_curr == 'RWF':
-                # RWF → FOREIGN
                 foreign_currency = to_curr
                 rwf_amount = amount
                 rate = rates[foreign_currency]['buy_rate']
                 foreign_amount = rwf_amount / rate
 
-                cursor = conn.execute('''
+                cur.execute("""
                     INSERT INTO transactions
                     (timestamp, transaction_type, foreign_currency, foreign_amount, rwf_amount, rate_used, profit, fee, client_name)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
                       foreign_amount, rwf_amount, rate, 0.0, fee, client_name))
-                tx_id = cursor.lastrowid
+                tx_id = cur.fetchone()['id']
 
                 profit = consume_batches(conn, foreign_currency, foreign_amount, rate, tx_id)
-                conn.execute('UPDATE transactions SET profit = ? WHERE id = ?', (profit, tx_id))
+                cur.execute('UPDATE transactions SET profit = %s WHERE id = %s', (profit, tx_id))
 
                 balances['rwf_balance'] += rwf_amount
                 balances[f"{foreign_currency.lower()}_balance"] -= foreign_amount
 
-            # Update cumulative profit in balances
             balances['total_profit_rwf'] = float(balances.get('total_profit_rwf', 0)) + profit
             balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            save_json(BALANCES_FILE, balances)
+            save_balances(balances)
             conn.commit()
             conn.close()
 
@@ -507,13 +442,13 @@ def calculator():
             balances['usd_rwanda_balance'] = float(balances['usd_rwanda_balance']) - foreign_amount
 
         balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        save_json(BALANCES_FILE, balances)
+        save_balances(balances)
 
-        conn.execute('''
+        cur.execute("""
             INSERT INTO transactions
             (timestamp, transaction_type, foreign_currency, foreign_amount, rwf_amount, rate_used, profit, fee, client_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             tx_type, foreign_currency, foreign_amount,
             rwf_amount, rate, profit, fee, client_name
@@ -557,26 +492,28 @@ def rates_settings():
 
         rates['usd_transfer_fee'] = float(request.form.get('usd_transfer_fee'))
         rates['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        save_json(RATES_FILE, rates)
+        save_rates(rates)
         flash("Exchange rates and fees updated", "success")
         return redirect(url_for('rates_settings'))
 
     conn = get_db()
+    cur = conn.cursor()
     debts = {}
     batches = {}
     for currency in ['USD', 'CNY', 'CAD']:
         debts[currency] = get_total_debt(conn, currency)
-        currency_batches = conn.execute('''
+        cur.execute("""
             SELECT * FROM currency_batches
-            WHERE currency = ? AND remaining > 0
+            WHERE currency = %s AND remaining > 0
             ORDER BY id ASC
-        ''', (currency,)).fetchall()
-        batches[currency] = [dict(b) for b in currency_batches]
+        """, (currency,))
+        batches[currency] = [dict(b) for b in cur.fetchall()]
     conn.close()
 
     return render_template('rates.html', rates=rates, debts=debts, batches=batches)
+
 # ──────────────────────────────────────────────
-# INVENTORY + PROFIT ADJUSTMENT (Admin only)
+# INVENTORY + PROFIT ADJUSTMENT
 # ──────────────────────────────────────────────
 
 @app.route('/inventory/adjust', methods=['POST'])
@@ -596,7 +533,6 @@ def adjust_inventory():
     balances = load_balances()
     rates = load_rates()
 
-    # Handle profit adjustment separately
     if currency == 'PROFIT_RWF':
         current = float(balances.get('total_profit_rwf', 0))
         if action == 'ADD':
@@ -604,14 +540,12 @@ def adjust_inventory():
         else:
             balances['total_profit_rwf'] = current - amount
         balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        save_json(BALANCES_FILE, balances)
+        save_balances(balances)
         flash(f"Profit adjusted: {action} {amount:,.0f} RWF", "success")
         return redirect(url_for('rates_settings'))
 
-    # Handle regular currency inventory
     if currency in ['USD', 'CNY', 'CAD', 'RWF', 'USD_RWANDA']:
         balance_key = f"{currency.lower()}_balance"
-
         if currency == 'USD_RWANDA':
             balance_key = 'usd_rwanda_balance'
 
@@ -627,12 +561,12 @@ def adjust_inventory():
             balances[balance_key] -= amount
 
     balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    save_json(BALANCES_FILE, balances)
+    save_balances(balances)
     flash(f"Inventory updated: {action} {amount} {currency}", "success")
     return redirect(url_for('rates_settings'))
 
 # ──────────────────────────────────────────────
-# TRANSACTION HISTORY (view only, no delete)
+# TRANSACTIONS HISTORY
 # ──────────────────────────────────────────────
 
 @app.route('/transactions')
@@ -644,19 +578,21 @@ def transactions_history():
     currency_filter = request.args.get('currency')
 
     conn = get_db()
+    cur = conn.cursor()
     query = 'SELECT * FROM transactions WHERE 1=1'
     params = []
 
     if date_filter:
-        query += ' AND timestamp LIKE ?'
+        query += ' AND timestamp LIKE %s'
         params.append(f'{date_filter}%')
 
     if currency_filter:
-        query += ' AND foreign_currency = ?'
+        query += ' AND foreign_currency = %s'
         params.append(currency_filter)
 
     query += ' ORDER BY id DESC'
-    transactions = conn.execute(query, params).fetchall()
+    cur.execute(query, params)
+    transactions = cur.fetchall()
     total_profit = sum(t['profit'] for t in transactions)
     conn.close()
 
@@ -674,20 +610,18 @@ def transactions_history():
 def serve_report(filename):
     if 'user' not in session:
         return redirect(url_for('login'))
-    reports_dir = os.path.join(BASE_DIR, 'reports', 'monthly_reports')
     from flask import send_from_directory
+    reports_dir = os.path.join('/app', 'reports', 'monthly_reports')
     return send_from_directory(reports_dir, filename)
 
 @app.route('/reports')
 def monthly_reports():
     if 'user' not in session:
         return redirect(url_for('login'))
-    reports_dir = os.path.join(BASE_DIR, 'reports', 'monthly_reports')
+    reports_dir = os.path.join('/app', 'reports', 'monthly_reports')
     os.makedirs(reports_dir, exist_ok=True)
     reports = [f for f in os.listdir(reports_dir) if f.endswith('.pdf')]
     return render_template('reports.html', reports=reports)
-
-
 
 @app.route('/reports/generate', methods=['POST'])
 def generate_report():
@@ -696,11 +630,10 @@ def generate_report():
         return redirect(url_for('monthly_reports'))
 
     import subprocess
-    script_path = os.path.join(BASE_DIR, 'scripts', 'generate_monthly_report.py')
-    
+    script_path = os.path.join('/app', 'scripts', 'generate_monthly_report.py')
+
     try:
         script_env = os.environ.copy()
-        script_env['DATA_DIR'] = DATA_DIR
         result = subprocess.run(
             ['python3', script_path],
             capture_output=True,
@@ -709,14 +642,10 @@ def generate_report():
             env=script_env
         )
         if result.returncode == 0:
-            # Reset cumulative profit directly from the Flask app
-            # (the scripts/ dir is not volume-mounted, so the subprocess
-            #  may run a stale copy that doesn't reset properly)
             balances = load_balances()
             balances['total_profit_rwf'] = 0.0
             balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            save_json(BALANCES_FILE, balances)
-
+            save_balances(balances)
             flash("Monthly report generated successfully! Database reset for new month.", "success")
         else:
             flash(f"Report generation failed: {result.stderr}", "error")
@@ -724,5 +653,6 @@ def generate_report():
         flash(f"Error running report script: {str(e)}", "error")
 
     return redirect(url_for('monthly_reports'))
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

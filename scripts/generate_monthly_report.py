@@ -1,23 +1,29 @@
 import os
-import sqlite3
-import json
-import shutil
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 from fpdf import FPDF
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
 
-# Paths — prefer DATA_DIR env var (set by Flask app) for consistency
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(SCRIPTS_DIR)
-DATA_DIR = os.environ.get('DATA_DIR', os.path.join(BASE_DIR, 'data'))
-DB_FILE = os.path.join(DATA_DIR, 'transactions.db')
-RATES_FILE = os.path.join(DATA_DIR, 'rates.json')
-BALANCES_FILE = os.path.join(DATA_DIR, 'balances.json')
-ARCHIVE_DIR = os.path.join(DATA_DIR, 'archive')
 REPORTS_DIR = os.path.join(BASE_DIR, 'reports', 'monthly_reports')
-
-# Ensure directories exist
-os.makedirs(ARCHIVE_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
+
+EMAIL_SENDER = 'bisstgloire@gmail.com'
+EMAIL_PASSWORD = 'eugj mlcm szhe lmnk'
+EMAIL_RECEIVER = 'bisstgloire@gmail.com'
+
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+
 
 class ReportPDF(FPDF):
     def header(self):
@@ -32,52 +38,79 @@ class ReportPDF(FPDF):
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
 
-def reset_profit():
-    """Reset cumulative profit in balances.json to 0."""
-    if os.path.exists(BALANCES_FILE):
-        with open(BALANCES_FILE, 'r') as f:
-            balances = json.load(f)
-        balances['total_profit_rwf'] = 0.0
-        balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(BALANCES_FILE, 'w') as f:
-            json.dump(balances, f, indent=4)
-        print("Cumulative profit reset to 0 for the new month.")
-    else:
-        print("Warning: balances.json not found, profit not reset.")
+def send_email(report_path, report_filename, month_str, total_profit, total_fees):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg['Subject'] = f'H&G Money Transfer - Monthly Report {month_str}'
+
+        body = f"""Hello,
+
+Please find attached the monthly forex report for {month_str}.
+
+Summary:
+- Total Profit: {total_profit:,.0f} RWF
+- Total Transfer Fees: ${total_fees:,.2f} USD
+
+The database has been reset for the new month.
+
+Regards,
+H&G Money Transfer System
+"""
+        msg.attach(MIMEText(body, 'plain'))
+
+        with open(report_path, 'rb') as f:
+            attachment = MIMEBase('application', 'octet-stream')
+            attachment.set_payload(f.read())
+            encoders.encode_base64(attachment)
+            attachment.add_header('Content-Disposition', f'attachment; filename={report_filename}')
+            msg.attach(attachment)
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+
+        print(f"Report emailed to {EMAIL_RECEIVER}")
+    except Exception as e:
+        print(f"Failed to send email: {str(e)}")
+
+
+def reset_profit(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE balances SET total_profit_rwf = 0.0, last_updated = %s WHERE id = 1
+    """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.commit()
+    print("Cumulative profit reset to 0 for the new month.")
 
 
 def generate_report():
     now = datetime.now()
+    conn = get_db()
+    cur = conn.cursor()
 
-    if not os.path.exists(RATES_FILE):
-        print("Rates file not found. Cannot calculate spread.")
+    cur.execute("SELECT * FROM rates WHERE id = 1")
+    rates_row = cur.fetchone()
+    if not rates_row:
+        print("Rates not found in database.")
+        conn.close()
         return
 
-    with open(RATES_FILE, 'r') as f:
-        rates = json.load(f)
-
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Get all transactions
-    cursor.execute('SELECT * FROM transactions ORDER BY timestamp ASC')
-    transactions = cursor.fetchall()
+    cur.execute('SELECT * FROM transactions ORDER BY timestamp ASC')
+    transactions = cur.fetchall()
 
     if not transactions:
         print("No transactions to report.")
+        reset_profit(conn)
         conn.close()
-        # Reset profit even if no transactions
-        reset_profit()
         return
 
     # ── CALCULATIONS ──
     currencies = ['USD', 'CNY', 'CAD']
     stats = {curr: {'volume': 0, 'rwf': 0, 'profit': 0} for curr in currencies}
-
     indep_pairs = ['USD_CAD', 'USD_CNY']
     indep_stats = {pair: {'usd_vol': 0, 'other_vol': 0} for pair in indep_pairs}
-
     total_profit_rwf = 0
     total_fees_usd = 0
 
@@ -94,20 +127,20 @@ def generate_report():
             elif tx['transaction_type'] in ['CAD_TO_USD', 'CNY_TO_USD']:
                 indep_stats[curr]['usd_vol'] += tx['rwf_amount']
                 indep_stats[curr]['other_vol'] += tx['foreign_amount']
-
         total_profit_rwf += tx['profit']
         total_fees_usd += tx['fee']
 
     # Get pending debts
     pending_debts = {}
     for curr in currencies:
-        result = cursor.execute('''
+        cur.execute("""
             SELECT SUM(remaining_debt) as total FROM currency_debts
-            WHERE currency = ? AND remaining_debt > 0
-        ''', (curr,)).fetchone()
+            WHERE currency = %s AND remaining_debt > 0
+        """, (curr,))
+        result = cur.fetchone()
         pending_debts[curr] = result['total'] if result['total'] else 0.0
 
-    # ── FILENAME — unique per generation with timestamp ──
+    # ── FILENAME ──
     report_month = now.strftime("%B_%Y")
     report_timestamp = now.strftime("%H%M%S")
     report_filename = f"HG_Monthly_Report_{report_month}_{report_timestamp}.pdf"
@@ -117,12 +150,10 @@ def generate_report():
     pdf = ReportPDF()
     pdf.add_page()
     pdf.set_font('Arial', '', 12)
-
     pdf.cell(0, 10, f"Period: {now.strftime('%B %Y')}", 0, 1)
     pdf.cell(0, 10, f"Generated On: {now.strftime('%Y-%m-%d %H:%M')}", 0, 1)
     pdf.ln(5)
 
-    # Summary by Currency Pair
     pdf.set_font('Arial', 'B', 14)
     pdf.cell(0, 10, "Summary by Currency Pair", 0, 1)
     pdf.ln(2)
@@ -163,13 +194,11 @@ def generate_report():
     pdf.set_text_color(46, 125, 50)
     pdf.cell(95, 12, "TOTAL COMBINED PROFIT (RWF)", 1, 0, 'L', False)
     pdf.cell(95, 12, f"{total_profit_rwf:,.0f} RWF", 1, 1, 'L', False)
-
     pdf.set_text_color(26, 35, 126)
     pdf.cell(95, 12, "TOTAL TRANSFER FEES (USD)", 1, 0, 'L', False)
     pdf.cell(95, 12, f"${total_fees_usd:,.2f} USD", 1, 1, 'L', False)
     pdf.set_text_color(0, 0, 0)
 
-    # Pending Debts Section
     has_debts = any(v > 0 for v in pending_debts.values())
     if has_debts:
         pdf.ln(5)
@@ -192,25 +221,20 @@ def generate_report():
     pdf.cell(0, 10, "Detailed Transaction Log", 0, 1)
     pdf.ln(2)
 
-    # Details Table
     pdf.set_font('Arial', 'B', 8)
     pdf.set_fill_color(26, 35, 126)
     pdf.set_text_color(255, 255, 255)
-
     col_widths = [25, 35, 30, 30, 15, 30, 25]
     headers = ["Date", "Type", "Foreign Amt", "RWF Amt", "Rate", "Profit/Fee", "Client"]
-
     for i in range(len(headers)):
         pdf.cell(col_widths[i], 8, headers[i], 1, 0, 'C', True)
     pdf.ln()
 
     pdf.set_text_color(0, 0, 0)
     pdf.set_font('Arial', '', 7)
-
     for tx in transactions:
         pdf.cell(col_widths[0], 8, tx['timestamp'].split(' ')[0], 1)
         pdf.cell(col_widths[1], 8, tx['transaction_type'].replace('_', ' ')[:18], 1)
-
         if tx['transaction_type'] in ['USD_TO_CAD', 'USD_TO_CNY']:
             f_amt = f"{tx['foreign_amount']:,.2f} USD"
             r_amt = f"{tx['rwf_amount']:,.2f} {tx['transaction_type'].split('_')[2]}"
@@ -220,54 +244,40 @@ def generate_report():
         else:
             f_amt = f"{tx['foreign_amount']:,.2f} {tx['foreign_currency']}"
             r_amt = f"{tx['rwf_amount']:,.0f}"
-
         pdf.cell(col_widths[2], 8, f_amt, 1, 0, 'R')
         pdf.cell(col_widths[3], 8, r_amt, 1, 0, 'R')
         pdf.cell(col_widths[4], 8, f"{tx['rate_used'] if tx['rate_used'] > 0 else '-'}", 1, 0, 'R')
-
-        pf_val = ""
         if tx['transaction_type'] == 'USD_US_TO_USD_RWA':
             pf_val = f"${tx['fee']:,.2f}"
         elif tx['transaction_type'] in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD']:
             pf_val = "-"
         else:
             pf_val = f"{tx['profit']:,.0f} R"
-
         pdf.cell(col_widths[5], 8, pf_val, 1, 0, 'R')
         pdf.cell(col_widths[6], 8, tx['client_name'][:15], 1, 1, 'C')
 
     pdf.output(report_path)
     print(f"Report generated: {report_path}")
 
-    # ── ARCHIVE ──
-    archive_month = now.strftime("%Y-%m")
-    archive_filename = f"forex_backup_{archive_month}_{report_timestamp}.db"
-    archive_path = os.path.join(ARCHIVE_DIR, archive_filename)
+    # ── SEND EMAIL ──
+    send_email(report_path, report_filename, now.strftime('%B %Y'), total_profit_rwf, total_fees_usd)
 
-    conn.close()
-
-    shutil.copy2(DB_FILE, archive_path)
-    print(f"Data archived to: {archive_path}")
-
-    # ── RESET DATABASE — keep debts, clear everything else ──
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute('DELETE FROM transactions')
-    conn.execute('DELETE FROM currency_batches')
-    conn.execute('DELETE FROM batch_consumption_log')
-    conn.execute('DELETE FROM debt_payment_log')
-    # currency_debts stays — pending debts carry forward to next month
+    # ── RESET SUPABASE — keep debts, clear everything else ──
+    cur.execute('DELETE FROM transactions')
+    cur.execute('DELETE FROM currency_batches')
+    cur.execute('DELETE FROM batch_consumption_log')
+    cur.execute('DELETE FROM debt_payment_log')
     conn.commit()
-    conn.close()
     print("Database reset for the new month (debts forwarded).")
 
-    # ── RESET CUMULATIVE PROFIT ──
-    reset_profit()
+    reset_profit(conn)
+    conn.close()
 
     print(f"\n✅ Monthly report complete for {now.strftime('%B %Y')}")
     print(f"   Total Profit : {total_profit_rwf:,.0f} RWF")
     print(f"   Total Fees   : ${total_fees_usd:,.2f} USD")
     if has_debts:
-        print(f"   ⚠️  Pending debts forwarded:")
+        print(f"   Pending debts forwarded:")
         for curr, debt in pending_debts.items():
             if debt > 0:
                 print(f"      {curr}: {debt:,.4f} {curr} owed")

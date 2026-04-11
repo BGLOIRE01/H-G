@@ -11,8 +11,8 @@ app.secret_key = 'hg_money_transfer_secret_key'
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 USERS = {
-    "admin": {"password": generate_password_hash("admin123"), "role": "admin"},
-    "staff": {"password": generate_password_hash("staff123"), "role": "staff"}
+    "admin": {"password": generate_password_hash(os.environ.get("ADMIN_PASSWORD", "changeme")), "role": "admin"},
+    "staff": {"password": generate_password_hash(os.environ.get("STAFF_PASSWORD", "changeme")), "role": "staff"}
 }
 
 def get_db():

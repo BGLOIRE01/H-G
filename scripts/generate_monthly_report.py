@@ -262,13 +262,13 @@ def generate_report():
     # ── SEND EMAIL ──
     send_email(report_path, report_filename, now.strftime('%B %Y'), total_profit_rwf, total_fees_usd)
 
-    # ── RESET SUPABASE — keep debts, clear everything else ──
+    # ── RESET SUPABASE — keep unfinished batches and debts ──
     cur.execute('DELETE FROM transactions')
-    cur.execute('DELETE FROM currency_batches')
+    # cur.execute('DELETE FROM currency_batches') # Removed: finished batches delete themselves, unfinished must stay
     cur.execute('DELETE FROM batch_consumption_log')
     cur.execute('DELETE FROM debt_payment_log')
     conn.commit()
-    print("Database reset for the new month (debts forwarded).")
+    print("Database reset for the new month (unfinished batches and debts preserved).")
 
     reset_profit(conn)
     conn.close()

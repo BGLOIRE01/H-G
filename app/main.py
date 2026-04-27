@@ -158,9 +158,12 @@ def add_batch(conn, currency, amount, sell_rate, transaction_id):
         paid = min(debt_remaining, remaining_to_add)
         profit_from_debt += paid * (buy_rate_at_debt - sell_rate)
 
-        cur.execute("""
-            UPDATE currency_debts SET remaining_debt = %s WHERE id = %s
-        """, (debt_remaining - paid, debt_id))
+        if (debt_remaining - paid) <= 0:
+            cur.execute("DELETE FROM currency_debts WHERE id = %s", (debt_id,))
+        else:
+            cur.execute("""
+                UPDATE currency_debts SET remaining_debt = %s WHERE id = %s
+            """, (debt_remaining - paid, debt_id))
 
         cur.execute("""
             INSERT INTO debt_payment_log (transaction_id, debt_id, paid_amount)
@@ -202,9 +205,12 @@ def consume_batches(conn, currency, amount_needed, buy_rate, transaction_id):
         consumed = min(batch_remaining, remaining_needed)
         total_profit += consumed * (buy_rate - batch_sell_rate)
 
-        cur.execute("""
-            UPDATE currency_batches SET remaining = %s WHERE id = %s
-        """, (batch_remaining - consumed, batch_id))
+        if (batch_remaining - consumed) <= 0:
+            cur.execute("DELETE FROM currency_batches WHERE id = %s", (batch_id,))
+        else:
+            cur.execute("""
+                UPDATE currency_batches SET remaining = %s WHERE id = %s
+            """, (batch_remaining - consumed, batch_id))
 
         cur.execute("""
             INSERT INTO batch_consumption_log (transaction_id, batch_id, consumed_amount)

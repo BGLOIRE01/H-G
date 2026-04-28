@@ -45,6 +45,7 @@
                     <th class="text-right hide-mobile">Rate</th>
                     <th class="text-right">Profit/Fee</th>
                     <th>Client</th>
+                    {% if session.role == 'admin' %}<th style="text-align:center;">Undo</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -80,15 +81,27 @@
                     <td class="text-right"
                         style="font-weight: 600; color: {% if tx.profit > 0 or tx.fee > 0 %}var(--secondary-color){% else %}#757575{% endif %};">
                         {% if tx.transaction_type in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD'] %}-
-                        {% elif tx.transaction_type == 'USD_US_TO_USD_RWA' %}${{ "{:,.2f}".format(tx.fee) }} Fee
+                        {% elif tx.transaction_type in ['USD_US_TO_USD_RWA', 'USD_RWA_TO_USD_US'] %}${{ "{:,.2f}".format(tx.fee) }} Fee
                         {% else %}{{ "{:,.0f}".format(tx.profit) }} RWF
                         {% endif %}
                     </td>
                     <td>{{ tx.client_name }}</td>
+                    {% if session.role == 'admin' %}
+                    <td style="text-align:center;">
+                        <button type="button"
+                            onclick="confirmUndo({{ tx.id }}, '{{ tx.transaction_type.replace('_',' ') }}', '{{ tx.client_name }}')"
+                            title="Undo this transaction"
+                            style="background: #fff0f0; border: 1px solid #e53935; color: #e53935; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;">
+                            Undo
+                        </button>
+                        <form id="undo-form-{{ tx.id }}" method="POST"
+                            action="{{ url_for('undo_transaction', tx_id=tx.id) }}" style="display:none;"></form>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-secondary);">No
+                    <td colspan="{{ 9 if session.role == 'admin' else 8 }}" style="text-align: center; padding: 3rem; color: var(--text-secondary);">No
                         transactions found.</td>
                 </tr>
                 {% endfor %}
@@ -96,4 +109,14 @@
         </table>
     </div>
 </div>
+
+{% if session.role == 'admin' %}
+<script>
+function confirmUndo(txId, txType, clientName) {
+    if (confirm('Undo transaction #' + txId + '?\n\nType: ' + txType + '\nClient: ' + clientName + '\n\nThis will reverse all balance and inventory changes. This cannot be undone.')) {
+        document.getElementById('undo-form-' + txId).submit();
+    }
+}
+</script>
+{% endif %}
 {% endblock %}

@@ -97,6 +97,10 @@ def generate_report():
         conn.close()
         return
 
+    cur.execute("SELECT total_profit_rwf FROM balances WHERE id = 1")
+    balances_row = cur.fetchone()
+    balances_total_profit = float(balances_row['total_profit_rwf']) if balances_row else 0.0
+
     cur.execute('SELECT * FROM transactions ORDER BY timestamp ASC')
     transactions = cur.fetchall()
 
@@ -107,11 +111,12 @@ def generate_report():
         return
 
     # ── CALCULATIONS ──
-    currencies = ['USD', 'CNY', 'CAD']
+    currencies = ['USD', 'CNY', 'CAD', 'USD_RWA']
+    currency_labels = {'USD': 'USD', 'CNY': 'CNY', 'CAD': 'CAD', 'USD_RWA': 'USD(RWA)'}
     stats = {curr: {'volume': 0, 'rwf': 0, 'profit': 0} for curr in currencies}
     indep_pairs = ['USD_CAD', 'USD_CNY']
     indep_stats = {pair: {'usd_vol': 0, 'other_vol': 0} for pair in indep_pairs}
-    total_profit_rwf = 0
+    transaction_profit_sum = 0
     total_fees_usd = 0
 
     for tx in transactions:
@@ -127,8 +132,12 @@ def generate_report():
             elif tx['transaction_type'] in ['CAD_TO_USD', 'CNY_TO_USD']:
                 indep_stats[curr]['usd_vol'] += tx['rwf_amount']
                 indep_stats[curr]['other_vol'] += tx['foreign_amount']
-        total_profit_rwf += tx['profit']
+        transaction_profit_sum += tx['profit']
         total_fees_usd += tx['fee']
+
+    # Use the balances total (includes admin adjustments) as authoritative total profit
+    total_profit_rwf = balances_total_profit
+    admin_adjustment = balances_total_profit - transaction_profit_sum
 
     # Get pending debts
     pending_debts = {}
@@ -167,8 +176,9 @@ def generate_report():
 
     pdf.set_font('Arial', '', 10)
     for curr in currencies:
-        pdf.cell(30, 10, f"{curr}-RWF", 1, 0, 'C')
-        pdf.cell(50, 10, f"{stats[curr]['volume']:,.2f} {curr}", 1, 0, 'R')
+        label = currency_labels[curr]
+        pdf.cell(30, 10, f"{label}-RWF", 1, 0, 'C')
+        pdf.cell(50, 10, f"{stats[curr]['volume']:,.2f} {label}", 1, 0, 'R')
         pdf.cell(60, 10, f"{stats[curr]['rwf']:,.0f} RWF", 1, 0, 'R')
         pdf.cell(50, 10, f"{stats[curr]['profit']:,.0f} RWF", 1, 1, 'R')
 
@@ -192,6 +202,12 @@ def generate_report():
     pdf.ln(5)
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(46, 125, 50)
+    pdf.cell(95, 12, "TRANSACTION PROFIT (RWF)", 1, 0, 'L', False)
+    pdf.cell(95, 12, f"{transaction_profit_sum:,.0f} RWF", 1, 1, 'L', False)
+    if admin_adjustment != 0:
+        adj_label = f"ADMIN ADJUSTMENT ({'+ ' if admin_adjustment > 0 else ''}{admin_adjustment:,.0f} RWF)"
+        pdf.cell(95, 12, adj_label, 1, 0, 'L', False)
+        pdf.cell(95, 12, f"{admin_adjustment:,.0f} RWF", 1, 1, 'L', False)
     pdf.cell(95, 12, "TOTAL COMBINED PROFIT (RWF)", 1, 0, 'L', False)
     pdf.cell(95, 12, f"{total_profit_rwf:,.0f} RWF", 1, 1, 'L', False)
     pdf.set_text_color(26, 35, 126)
@@ -216,45 +232,96 @@ def generate_report():
                 pdf.cell(60, 10, curr, 1, 0, 'C')
                 pdf.cell(130, 10, f"{debt:,.4f} {curr}", 1, 1, 'R')
 
-    pdf.ln(10)
+    # ── DETAILED TRANSACTION LOG (one table per currency group) ──
+    pdf.add_page()
     pdf.set_font('Arial', 'B', 14)
-    pdf.cell(0, 10, "Detailed Transaction Log", 0, 1)
-    pdf.ln(2)
-
-    pdf.set_font('Arial', 'B', 8)
-    pdf.set_fill_color(26, 35, 126)
-    pdf.set_text_color(255, 255, 255)
-    col_widths = [25, 35, 30, 30, 15, 30, 25]
-    headers = ["Date", "Type", "Foreign Amt", "RWF Amt", "Rate", "Profit/Fee", "Client"]
-    for i in range(len(headers)):
-        pdf.cell(col_widths[i], 8, headers[i], 1, 0, 'C', True)
-    pdf.ln()
-
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font('Arial', '', 7)
+    pdf.cell(0, 10, "Detailed Transaction Log", 0, 1)
+
+    col_widths = [25, 38, 30, 30, 14, 28, 25]
+    tx_headers = ["Date", "Type", "Foreign Amt", "RWF Amt", "Rate", "Profit/Fee", "Client"]
+
+    tx_groups = [
+        ("USD ↔ RWF",      ["USD_TO_RWF",        "RWF_TO_USD"]),
+        ("CNY ↔ RWF",      ["CNY_TO_RWF",        "RWF_TO_CNY"]),
+        ("CAD ↔ RWF",      ["CAD_TO_RWF",        "RWF_TO_CAD"]),
+        ("USD(RWA) ↔ RWF", ["USD_RWA_TO_RWF",    "RWF_TO_USD_RWA"]),
+        ("USD ↔ CAD",      ["USD_TO_CAD",         "CAD_TO_USD"]),
+        ("USD ↔ CNY",      ["USD_TO_CNY",         "CNY_TO_USD"]),
+        ("USD Transfers",       ["USD_US_TO_USD_RWA",  "USD_RWA_TO_USD_US"]),
+    ]
+
+    tx_by_type = {}
     for tx in transactions:
-        pdf.cell(col_widths[0], 8, tx['timestamp'].split(' ')[0], 1)
-        pdf.cell(col_widths[1], 8, tx['transaction_type'].replace('_', ' ')[:18], 1)
-        if tx['transaction_type'] in ['USD_TO_CAD', 'USD_TO_CNY']:
-            f_amt = f"{tx['foreign_amount']:,.2f} USD"
-            r_amt = f"{tx['rwf_amount']:,.2f} {tx['transaction_type'].split('_')[2]}"
-        elif tx['transaction_type'] in ['CAD_TO_USD', 'CNY_TO_USD']:
-            f_amt = f"{tx['foreign_amount']:,.2f} {tx['transaction_type'].split('_')[0]}"
-            r_amt = f"{tx['rwf_amount']:,.2f} USD"
+        tx_by_type.setdefault(tx['transaction_type'], []).append(tx)
+
+    for group_label, types in tx_groups:
+        group_txs = []
+        for tt in types:
+            group_txs.extend(tx_by_type.get(tt, []))
+        if not group_txs:
+            continue
+
+        group_txs.sort(key=lambda t: t['timestamp'])
+
+        pdf.ln(4)
+        pdf.set_font('Arial', 'B', 10)
+        pdf.set_fill_color(26, 35, 126)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 9, f"  {group_label}", 1, 1, 'L', True)
+        pdf.set_text_color(0, 0, 0)
+
+        pdf.set_font('Arial', 'B', 8)
+        pdf.set_fill_color(200, 210, 240)
+        for i, h in enumerate(tx_headers):
+            pdf.cell(col_widths[i], 7, h, 1, 0, 'C', True)
+        pdf.ln()
+
+        pdf.set_font('Arial', '', 7)
+        for tx in group_txs:
+            tt = tx['transaction_type']
+            if tt in ['USD_TO_CAD', 'USD_TO_CNY']:
+                f_amt = f"{tx['foreign_amount']:,.2f} USD"
+                r_amt = f"{tx['rwf_amount']:,.2f} {tt.split('_')[2]}"
+            elif tt in ['CAD_TO_USD', 'CNY_TO_USD']:
+                f_amt = f"{tx['foreign_amount']:,.2f} {tt.split('_')[0]}"
+                r_amt = f"{tx['rwf_amount']:,.2f} USD"
+            elif tt in ['USD_US_TO_USD_RWA', 'USD_RWA_TO_USD_US']:
+                f_amt = f"{tx['foreign_amount']:,.2f} USD"
+                r_amt = "-"
+            else:
+                f_amt = f"{tx['foreign_amount']:,.2f} {tx['foreign_currency']}"
+                r_amt = f"{tx['rwf_amount']:,.0f} RWF"
+
+            if tt in ['USD_US_TO_USD_RWA', 'USD_RWA_TO_USD_US']:
+                pf_val = f"${tx['fee']:,.2f}"
+            elif tt in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD']:
+                pf_val = "-"
+            else:
+                pf_val = f"{tx['profit']:,.0f} R"
+
+            pdf.cell(col_widths[0], 7, tx['timestamp'].split(' ')[0], 1)
+            pdf.cell(col_widths[1], 7, tt.replace('_', ' ')[:20], 1)
+            pdf.cell(col_widths[2], 7, f_amt, 1, 0, 'R')
+            pdf.cell(col_widths[3], 7, r_amt, 1, 0, 'R')
+            pdf.cell(col_widths[4], 7, f"{tx['rate_used'] if tx['rate_used'] > 0 else '-'}", 1, 0, 'R')
+            pdf.cell(col_widths[5], 7, pf_val, 1, 0, 'R')
+            pdf.cell(col_widths[6], 7, tx['client_name'][:15], 1, 1, 'C')
+
+        # Group subtotal row
+        group_profit = sum(float(t['profit']) for t in group_txs)
+        group_fees = sum(float(t['fee']) for t in group_txs)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_fill_color(232, 232, 232)
+        subtotal_cols = col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + col_widths[4]
+        pdf.cell(subtotal_cols, 7, f"  Subtotal ({len(group_txs)} transactions)", 1, 0, 'L', True)
+        if group_label in ("USD Transfers",):
+            pdf.cell(col_widths[5], 7, f"${group_fees:,.2f}", 1, 0, 'R', True)
+        elif group_label in ("USD ↔ CAD", "USD ↔ CNY"):
+            pdf.cell(col_widths[5], 7, "-", 1, 0, 'C', True)
         else:
-            f_amt = f"{tx['foreign_amount']:,.2f} {tx['foreign_currency']}"
-            r_amt = f"{tx['rwf_amount']:,.0f}"
-        pdf.cell(col_widths[2], 8, f_amt, 1, 0, 'R')
-        pdf.cell(col_widths[3], 8, r_amt, 1, 0, 'R')
-        pdf.cell(col_widths[4], 8, f"{tx['rate_used'] if tx['rate_used'] > 0 else '-'}", 1, 0, 'R')
-        if tx['transaction_type'] == 'USD_US_TO_USD_RWA':
-            pf_val = f"${tx['fee']:,.2f}"
-        elif tx['transaction_type'] in ['USD_TO_CAD', 'CAD_TO_USD', 'USD_TO_CNY', 'CNY_TO_USD']:
-            pf_val = "-"
-        else:
-            pf_val = f"{tx['profit']:,.0f} R"
-        pdf.cell(col_widths[5], 8, pf_val, 1, 0, 'R')
-        pdf.cell(col_widths[6], 8, tx['client_name'][:15], 1, 1, 'C')
+            pdf.cell(col_widths[5], 7, f"{group_profit:,.0f} R", 1, 0, 'R', True)
+        pdf.cell(col_widths[6], 7, "", 1, 1, 'C', True)
 
     pdf.output(report_path)
     print(f"Report generated: {report_path}")
@@ -274,8 +341,11 @@ def generate_report():
     conn.close()
 
     print(f"\n✅ Monthly report complete for {now.strftime('%B %Y')}")
-    print(f"   Total Profit : {total_profit_rwf:,.0f} RWF")
-    print(f"   Total Fees   : ${total_fees_usd:,.2f} USD")
+    print(f"   Transaction Profit : {transaction_profit_sum:,.0f} RWF")
+    if admin_adjustment != 0:
+        print(f"   Admin Adjustment   : {admin_adjustment:+,.0f} RWF")
+    print(f"   Total Profit       : {total_profit_rwf:,.0f} RWF")
+    print(f"   Total Fees         : ${total_fees_usd:,.2f} USD")
     if has_debts:
         print(f"   Pending debts forwarded:")
         for curr, debt in pending_debts.items():

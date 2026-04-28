@@ -42,9 +42,17 @@
                             <option value="CNY_TO_USD" data-curr="USD_CNY" data-dir="IND_BUY"
                                 data-rate="{{ rates.USD_CNY.buy_rate }}">CNY → USD (Buy USD)</option>
                         </optgroup>
+                        <optgroup label="USD Rwanda Exchange">
+                            <option value="USD_RWA_TO_RWF" data-curr="USD" data-dir="SELL_RWA"
+                                data-rate="{{ rates.USD.sell_rate }}">USD RWA → RWF (Sell USD RWA)</option>
+                            <option value="RWF_TO_USD_RWA" data-curr="USD" data-dir="BUY_RWA"
+                                data-rate="{{ rates.USD.buy_rate }}">RWF → USD RWA (Buy USD RWA)</option>
+                        </optgroup>
                         <optgroup label="Other Transfers">
                             <option value="USD_US_TO_USD_RWA" data-curr="USD" data-dir="FEE"
                                 data-fee="{{ rates.usd_transfer_fee }}">USD US → USD RWA (Fixed Fee)</option>
+                            <option value="USD_RWA_TO_USD_US" data-curr="USD" data-dir="FEE_RWA"
+                                data-fee="{{ rates.usd_transfer_fee }}">USD RWA → USD US (Fixed Fee)</option>
                         </optgroup>
                     </select>
                 </div>
@@ -156,6 +164,20 @@
                 profit: amount > 0 ? fee : 0
             };
         }
+        if (direction === 'FEE_RWA') {
+            const fee = rates.usd_transfer_fee;
+            return {
+                received: amount > 0 ? amount + fee : 0,
+                profit: amount > 0 ? fee : 0
+            };
+        }
+        if (direction === 'SELL_RWA') {
+            return { received: amount * rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'BUY_RWA') {
+            const received = amount / rates[currency].buy_rate;
+            return { received, profit: received * (rates[currency].buy_rate - rates[currency].sell_rate) };
+        }
         return { received: 0, profit: 0 };
     }
 
@@ -181,6 +203,20 @@
                 send: received > 0 ? received - fee : 0,
                 profit: received > 0 ? fee : 0
             };
+        }
+        if (direction === 'FEE_RWA') {
+            const fee = rates.usd_transfer_fee;
+            return {
+                send: received > 0 ? received - fee : 0,
+                profit: received > 0 ? fee : 0
+            };
+        }
+        if (direction === 'SELL_RWA') {
+            return { send: received / rates[currency].sell_rate, profit: 0 };
+        }
+        if (direction === 'BUY_RWA') {
+            const send = received * rates[currency].buy_rate;
+            return { send, profit: received * (rates[currency].buy_rate - rates[currency].sell_rate) };
         }
         return { send: 0, profit: 0 };
     }
@@ -234,15 +270,49 @@
             profitCurrency.innerText = "RWF (Estimated)";
 
         } else if (direction === 'FEE') {
-            inputLabel.innerText = "Amount Receiver Gets (USD)";
+            inputLabel.innerText = "Amount Receiver Gets (USD RWA)";
             recvCurrencyLabel.innerText = "USD";
-            recvTitle.innerText = "Sender Pays Total";
+            recvTitle.innerText = "Sender Pays Total (USD US)";
             infoRateLabel.innerText = "Fixed Fee: $" + rates.usd_transfer_fee;
             infoSpreadLabel.innerText = "0 (Spread-free transfer)";
             infoBalanceLabel.innerText = "USD Rwanda Inventory:";
             infoBalanceValue.innerText = balances.usd_rwanda_balance.toLocaleString() + " USD";
             profitTitle.innerText = "USD Transfer Fee";
             profitCurrency.innerText = "USD";
+
+        } else if (direction === 'FEE_RWA') {
+            inputLabel.innerText = "Amount Receiver Gets (USD US)";
+            recvCurrencyLabel.innerText = "USD";
+            recvTitle.innerText = "Sender Pays Total (USD RWA)";
+            infoRateLabel.innerText = "Fixed Fee: $" + rates.usd_transfer_fee;
+            infoSpreadLabel.innerText = "0 (Spread-free transfer)";
+            infoBalanceLabel.innerText = "USD US Inventory:";
+            infoBalanceValue.innerText = balances.usd_balance.toLocaleString() + " USD";
+            profitTitle.innerText = "USD Transfer Fee";
+            profitCurrency.innerText = "USD";
+
+        } else if (direction === 'SELL_RWA') {
+            inputLabel.innerText = "USD Rwanda Amount to Sell";
+            recvCurrencyLabel.innerText = "RWF";
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = rates[currency].sell_rate + " RWF / USD";
+            infoSpreadLabel.innerText = "0 RWF (Business sells RWF)";
+            infoBalanceLabel.innerText = "RWF Inventory:";
+            infoBalanceValue.innerText = balances.rwf_balance.toLocaleString() + " RWF";
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
+
+        } else if (direction === 'BUY_RWA') {
+            const spread = rates[currency].buy_rate - rates[currency].sell_rate;
+            inputLabel.innerText = "RWF Amount to Send";
+            recvCurrencyLabel.innerText = "USD (Rwanda)";
+            recvTitle.innerText = "Customer Receives";
+            infoRateLabel.innerText = rates[currency].buy_rate + " RWF / USD";
+            infoSpreadLabel.innerText = spread.toFixed(2) + " RWF per USD";
+            infoBalanceLabel.innerText = "USD Rwanda Inventory:";
+            infoBalanceValue.innerText = balances.usd_rwanda_balance.toLocaleString() + " USD";
+            profitTitle.innerText = "Expected Profit Spread";
+            profitCurrency.innerText = "RWF (Estimated)";
         }
     }
 

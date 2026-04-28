@@ -159,7 +159,7 @@ def add_batch(conn, currency, amount, sell_rate, transaction_id):
         profit_from_debt += paid * (buy_rate_at_debt - sell_rate)
 
         if (debt_remaining - paid) <= 0:
-            cur.execute("DELETE FROM currency_debts WHERE id = %s", (debt_id,))
+            cur.execute("UPDATE currency_debts SET remaining_debt = 0 WHERE id = %s", (debt_id,))
         else:
             cur.execute("""
                 UPDATE currency_debts SET remaining_debt = %s WHERE id = %s
@@ -206,7 +206,7 @@ def consume_batches(conn, currency, amount_needed, buy_rate, transaction_id):
         total_profit += consumed * (buy_rate - batch_sell_rate)
 
         if (batch_remaining - consumed) <= 0:
-            cur.execute("DELETE FROM currency_batches WHERE id = %s", (batch_id,))
+            cur.execute("UPDATE currency_batches SET remaining = 0 WHERE id = %s", (batch_id,))
         else:
             cur.execute("""
                 UPDATE currency_batches SET remaining = %s WHERE id = %s
@@ -341,8 +341,65 @@ def calculator():
         conn = get_db()
         cur = conn.cursor()
 
+        # ── USD RWANDA ↔ RWF ──
+        if tx_type == 'USD_RWA_TO_RWF':
+            foreign_currency = 'USD_RWA'
+            foreign_amount = amount
+            rate = rates['USD']['sell_rate']
+            rwf_amount = foreign_amount * rate
+
+            cur.execute("""
+                INSERT INTO transactions
+                (timestamp, transaction_type, foreign_currency, foreign_amount, rwf_amount, rate_used, profit, fee, client_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
+                  foreign_amount, rwf_amount, rate, 0.0, 0.0, client_name))
+            tx_id = cur.fetchone()['id']
+
+            profit = add_batch(conn, 'USD', foreign_amount, rate, tx_id)
+            cur.execute('UPDATE transactions SET profit = %s WHERE id = %s', (profit, tx_id))
+
+            balances['usd_rwanda_balance'] = float(balances['usd_rwanda_balance']) + foreign_amount
+            balances['rwf_balance'] = float(balances['rwf_balance']) - rwf_amount
+            balances['total_profit_rwf'] = float(balances.get('total_profit_rwf', 0)) + profit
+            balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_balances(balances)
+            conn.commit()
+            conn.close()
+
+            flash(f"Transaction successful for {client_name}! USD RWA → RWF", "success")
+            return redirect(url_for('dashboard'))
+
+        elif tx_type == 'RWF_TO_USD_RWA':
+            foreign_currency = 'USD_RWA'
+            rwf_amount = amount
+            rate = rates['USD']['buy_rate']
+            foreign_amount = rwf_amount / rate
+
+            cur.execute("""
+                INSERT INTO transactions
+                (timestamp, transaction_type, foreign_currency, foreign_amount, rwf_amount, rate_used, profit, fee, client_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tx_type, foreign_currency,
+                  foreign_amount, rwf_amount, rate, 0.0, 0.0, client_name))
+            tx_id = cur.fetchone()['id']
+
+            profit = consume_batches(conn, 'USD', foreign_amount, rate, tx_id)
+            cur.execute('UPDATE transactions SET profit = %s WHERE id = %s', (profit, tx_id))
+
+            balances['rwf_balance'] = float(balances['rwf_balance']) + rwf_amount
+            balances['usd_rwanda_balance'] = float(balances['usd_rwanda_balance']) - foreign_amount
+            balances['total_profit_rwf'] = float(balances.get('total_profit_rwf', 0)) + profit
+            balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_balances(balances)
+            conn.commit()
+            conn.close()
+
+            flash(f"Transaction successful for {client_name}! RWF → USD RWA", "success")
+            return redirect(url_for('dashboard'))
+
         # ── RWF HUB PAIRS (USD, CNY, CAD ↔ RWF) ──
-        if '_TO_' in tx_type and 'RWF' in tx_type:
+        elif '_TO_' in tx_type and 'RWF' in tx_type:
             parts = tx_type.split('_TO_')
             from_curr = parts[0]
             to_curr = parts[1]
@@ -446,6 +503,19 @@ def calculator():
             rwf_amount = 0.0
             balances['usd_balance'] = float(balances['usd_balance']) + usd_sent
             balances['usd_rwanda_balance'] = float(balances['usd_rwanda_balance']) - foreign_amount
+
+        # ── USD RWANDA → USD US ──
+        elif tx_type == 'USD_RWA_TO_USD_US':
+            foreign_currency = 'USD'
+            fee_rate = float(rates['usd_transfer_fee'])
+            foreign_amount = float(amount)
+            usd_rwa_received = foreign_amount + fee_rate
+            profit = 0.0
+            fee = fee_rate
+            rate = 0.0
+            rwf_amount = 0.0
+            balances['usd_rwanda_balance'] = float(balances['usd_rwanda_balance']) + usd_rwa_received
+            balances['usd_balance'] = float(balances['usd_balance']) - foreign_amount
 
         balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_balances(balances)
@@ -607,6 +677,165 @@ def transactions_history():
                            total_profit=total_profit,
                            selected_date=date_filter,
                            selected_currency=currency_filter)
+
+# ──────────────────────────────────────────────
+# UNDO TRANSACTION
+# ──────────────────────────────────────────────
+
+@app.route('/transactions/<int:tx_id>/undo', methods=['POST'])
+def undo_transaction(tx_id):
+    if 'user' not in session or session['role'] != 'admin':
+        flash("Admin access required", "error")
+        return redirect(url_for('transactions_history'))
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM transactions WHERE id = %s", (tx_id,))
+    tx = cur.fetchone()
+    if not tx:
+        flash("Transaction not found.", "error")
+        conn.close()
+        return redirect(url_for('transactions_history'))
+
+    tx_type = tx['transaction_type']
+    foreign_currency = tx['foreign_currency']
+    foreign_amount = float(tx['foreign_amount'])
+    rwf_amount = float(tx['rwf_amount'])
+    profit = float(tx['profit'])
+    fee = float(tx['fee'])
+
+    balances = load_balances()
+
+    try:
+        if '_TO_' in tx_type and 'RWF' in tx_type:
+            parts = tx_type.split('_TO_')
+            from_curr = parts[0]
+            to_curr = parts[1]
+
+            if to_curr == 'RWF':
+                # add_batch was called: may have created a batch and/or paid debts
+                cur.execute("SELECT * FROM currency_batches WHERE transaction_id = %s", (tx_id,))
+                created_batch = cur.fetchone()
+
+                if created_batch:
+                    original = float(created_batch['original_amount'])
+                    remaining = float(created_batch['remaining'])
+                    if abs(remaining - original) > 0.001:
+                        flash(
+                            f"Cannot undo #{tx_id}: {remaining:,.4f} of {original:,.4f}"
+                            f" {foreign_currency} batch has already been consumed by later transactions.",
+                            "error"
+                        )
+                        conn.close()
+                        return redirect(url_for('transactions_history'))
+                    cur.execute("DELETE FROM currency_batches WHERE id = %s", (created_batch['id'],))
+
+                cur.execute("SELECT * FROM debt_payment_log WHERE transaction_id = %s", (tx_id,))
+                debt_payments = cur.fetchall()
+                for dp in debt_payments:
+                    paid = float(dp['paid_amount'])
+                    cur.execute("SELECT remaining_debt FROM currency_debts WHERE id = %s", (dp['debt_id'],))
+                    debt = cur.fetchone()
+                    if debt:
+                        cur.execute(
+                            "UPDATE currency_debts SET remaining_debt = %s WHERE id = %s",
+                            (float(debt['remaining_debt']) + paid, dp['debt_id'])
+                        )
+                cur.execute("DELETE FROM debt_payment_log WHERE transaction_id = %s", (tx_id,))
+
+                _bal_key = 'usd_rwanda_balance' if foreign_currency == 'USD_RWA' else f"{foreign_currency.lower()}_balance"
+                balances[_bal_key] -= foreign_amount
+                balances['rwf_balance'] += rwf_amount
+
+            elif from_curr == 'RWF':
+                # consume_batches was called: may have consumed batches and/or created a debt
+                cur.execute("SELECT * FROM batch_consumption_log WHERE transaction_id = %s", (tx_id,))
+                consumptions = cur.fetchall()
+
+                for c in consumptions:
+                    cur.execute("""
+                        SELECT COUNT(*) as cnt FROM batch_consumption_log
+                        WHERE batch_id = %s AND transaction_id > %s
+                    """, (c['batch_id'], tx_id))
+                    later = cur.fetchone()
+                    if later['cnt'] > 0:
+                        flash(
+                            f"Cannot undo #{tx_id}: consumed inventory has been re-used by later transactions.",
+                            "error"
+                        )
+                        conn.close()
+                        return redirect(url_for('transactions_history'))
+
+                cur.execute("SELECT * FROM currency_debts WHERE transaction_id = %s", (tx_id,))
+                created_debt = cur.fetchone()
+                if created_debt:
+                    cur.execute(
+                        "SELECT SUM(paid_amount) as total FROM debt_payment_log WHERE debt_id = %s",
+                        (created_debt['id'],)
+                    )
+                    result = cur.fetchone()
+                    if result['total'] and float(result['total']) > 0.001:
+                        flash(
+                            f"Cannot undo #{tx_id}: the shortfall debt created by this transaction has already been partially settled.",
+                            "error"
+                        )
+                        conn.close()
+                        return redirect(url_for('transactions_history'))
+                    cur.execute("DELETE FROM currency_debts WHERE id = %s", (created_debt['id'],))
+
+                for c in consumptions:
+                    cur.execute(
+                        "UPDATE currency_batches SET remaining = remaining + %s WHERE id = %s",
+                        (float(c['consumed_amount']), c['batch_id'])
+                    )
+                cur.execute("DELETE FROM batch_consumption_log WHERE transaction_id = %s", (tx_id,))
+
+                balances['rwf_balance'] -= rwf_amount
+                _bal_key = 'usd_rwanda_balance' if foreign_currency == 'USD_RWA' else f"{foreign_currency.lower()}_balance"
+                balances[_bal_key] += foreign_amount
+
+            balances['total_profit_rwf'] = float(balances.get('total_profit_rwf', 0)) - profit
+
+        elif tx_type == 'USD_TO_CAD':
+            balances['usd_balance'] -= foreign_amount
+            balances['cad_balance'] += rwf_amount
+
+        elif tx_type == 'CAD_TO_USD':
+            balances['cad_balance'] -= foreign_amount
+            balances['usd_balance'] += rwf_amount
+
+        elif tx_type == 'USD_TO_CNY':
+            balances['usd_balance'] -= foreign_amount
+            balances['cny_balance'] += rwf_amount
+
+        elif tx_type == 'CNY_TO_USD':
+            balances['cny_balance'] -= foreign_amount
+            balances['usd_balance'] += rwf_amount
+
+        elif tx_type == 'USD_US_TO_USD_RWA':
+            balances['usd_balance'] -= (foreign_amount + fee)
+            balances['usd_rwanda_balance'] += foreign_amount
+
+        elif tx_type == 'USD_RWA_TO_USD_US':
+            balances['usd_rwanda_balance'] -= (foreign_amount + fee)
+            balances['usd_balance'] += foreign_amount
+
+        balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        save_balances(balances)
+
+        cur.execute("DELETE FROM transactions WHERE id = %s", (tx_id,))
+        conn.commit()
+        conn.close()
+
+        flash(f"Transaction #{tx_id} ({tx_type.replace('_', ' ')}) has been undone and all balances restored.", "success")
+
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        flash(f"Failed to undo transaction #{tx_id}: {str(e)}", "error")
+
+    return redirect(url_for('transactions_history'))
 
 # ──────────────────────────────────────────────
 # REPORTS

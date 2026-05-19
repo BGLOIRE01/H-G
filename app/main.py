@@ -609,17 +609,21 @@ def adjust_inventory():
     balances = load_balances()
     rates = load_rates()
 
+    # ── PROFIT ADJUSTMENT — also updates RWF inventory ──
     if currency == 'PROFIT_RWF':
         current = float(balances.get('total_profit_rwf', 0))
         if action == 'ADD':
             balances['total_profit_rwf'] = current + amount
+            balances['rwf_balance'] = float(balances['rwf_balance']) + amount
         else:
             balances['total_profit_rwf'] = current - amount
+            balances['rwf_balance'] = float(balances['rwf_balance']) - amount
         balances['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_balances(balances)
-        flash(f"Profit adjusted: {action} {amount:,.0f} RWF", "success")
+        flash(f"Profit adjusted: {action} {amount:,.0f} RWF — RWF inventory updated too.", "success")
         return redirect(url_for('rates_settings'))
 
+    # ── REGULAR CURRENCY INVENTORY ──
     if currency in ['USD', 'CNY', 'CAD', 'RWF', 'USD_RWANDA']:
         balance_key = f"{currency.lower()}_balance"
         if currency == 'USD_RWANDA':
@@ -714,7 +718,6 @@ def undo_transaction(tx_id):
             to_curr = parts[1]
 
             if to_curr == 'RWF':
-                # add_batch was called: may have created a batch and/or paid debts
                 cur.execute("SELECT * FROM currency_batches WHERE transaction_id = %s", (tx_id,))
                 created_batch = cur.fetchone()
 
@@ -749,7 +752,6 @@ def undo_transaction(tx_id):
                 balances['rwf_balance'] += rwf_amount
 
             elif from_curr == 'RWF':
-                # consume_batches was called: may have consumed batches and/or created a debt
                 cur.execute("SELECT * FROM batch_consumption_log WHERE transaction_id = %s", (tx_id,))
                 consumptions = cur.fetchall()
 

@@ -205,7 +205,7 @@ def generate_report():
     pdf.cell(95, 12, "TRANSACTION PROFIT (RWF)", 1, 0, 'L', False)
     pdf.cell(95, 12, f"{transaction_profit_sum:,.0f} RWF", 1, 1, 'L', False)
     if admin_adjustment != 0:
-        adj_label = f"ADMIN ADJUSTMENT ({'+ ' if admin_adjustment > 0 else ''}{admin_adjustment:,.0f} RWF)"
+        adj_label = f"ADMIN ADJUSTMENT ({'+' if admin_adjustment > 0 else ''}{admin_adjustment:,.0f} RWF)"
         pdf.cell(95, 12, adj_label, 1, 0, 'L', False)
         pdf.cell(95, 12, f"{admin_adjustment:,.0f} RWF", 1, 1, 'L', False)
     pdf.cell(95, 12, "TOTAL COMBINED PROFIT (RWF)", 1, 0, 'L', False)
@@ -232,7 +232,7 @@ def generate_report():
                 pdf.cell(60, 10, curr, 1, 0, 'C')
                 pdf.cell(130, 10, f"{debt:,.4f} {curr}", 1, 1, 'R')
 
-    # ── DETAILED TRANSACTION LOG (one table per currency group) ──
+    # ── DETAILED TRANSACTION LOG ──
     pdf.add_page()
     pdf.set_font('Arial', 'B', 14)
     pdf.set_text_color(0, 0, 0)
@@ -241,14 +241,15 @@ def generate_report():
     col_widths = [25, 38, 30, 30, 14, 28, 25]
     tx_headers = ["Date", "Type", "Foreign Amt", "RWF Amt", "Rate", "Profit/Fee", "Client"]
 
+    # ── FIXED: replaced all ↔ with <-> for latin-1 compatibility ──
     tx_groups = [
-        ("USD ↔ RWF",      ["USD_TO_RWF",        "RWF_TO_USD"]),
-        ("CNY ↔ RWF",      ["CNY_TO_RWF",        "RWF_TO_CNY"]),
-        ("CAD ↔ RWF",      ["CAD_TO_RWF",        "RWF_TO_CAD"]),
-        ("USD(RWA) ↔ RWF", ["USD_RWA_TO_RWF",    "RWF_TO_USD_RWA"]),
-        ("USD ↔ CAD",      ["USD_TO_CAD",         "CAD_TO_USD"]),
-        ("USD ↔ CNY",      ["USD_TO_CNY",         "CNY_TO_USD"]),
-        ("USD Transfers",       ["USD_US_TO_USD_RWA",  "USD_RWA_TO_USD_US"]),
+        ("USD <-> RWF",      ["USD_TO_RWF",        "RWF_TO_USD"]),
+        ("CNY <-> RWF",      ["CNY_TO_RWF",        "RWF_TO_CNY"]),
+        ("CAD <-> RWF",      ["CAD_TO_RWF",        "RWF_TO_CAD"]),
+        ("USD(RWA) <-> RWF", ["USD_RWA_TO_RWF",    "RWF_TO_USD_RWA"]),
+        ("USD <-> CAD",      ["USD_TO_CAD",         "CAD_TO_USD"]),
+        ("USD <-> CNY",      ["USD_TO_CNY",         "CNY_TO_USD"]),
+        ("USD Transfers",    ["USD_US_TO_USD_RWA",  "USD_RWA_TO_USD_US"]),
     ]
 
     tx_by_type = {}
@@ -315,9 +316,9 @@ def generate_report():
         pdf.set_fill_color(232, 232, 232)
         subtotal_cols = col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + col_widths[4]
         pdf.cell(subtotal_cols, 7, f"  Subtotal ({len(group_txs)} transactions)", 1, 0, 'L', True)
-        if group_label in ("USD Transfers",):
+        if group_label == "USD Transfers":
             pdf.cell(col_widths[5], 7, f"${group_fees:,.2f}", 1, 0, 'R', True)
-        elif group_label in ("USD ↔ CAD", "USD ↔ CNY"):
+        elif group_label in ("USD <-> CAD", "USD <-> CNY"):
             pdf.cell(col_widths[5], 7, "-", 1, 0, 'C', True)
         else:
             pdf.cell(col_widths[5], 7, f"{group_profit:,.0f} R", 1, 0, 'R', True)
@@ -331,7 +332,6 @@ def generate_report():
 
     # ── RESET SUPABASE — keep unfinished batches and debts ──
     cur.execute('DELETE FROM transactions')
-    # cur.execute('DELETE FROM currency_batches') # Removed: finished batches delete themselves, unfinished must stay
     cur.execute('DELETE FROM batch_consumption_log')
     cur.execute('DELETE FROM debt_payment_log')
     conn.commit()
@@ -340,7 +340,7 @@ def generate_report():
     reset_profit(conn)
     conn.close()
 
-    print(f"\n✅ Monthly report complete for {now.strftime('%B %Y')}")
+    print(f"\n Monthly report complete for {now.strftime('%B %Y')}")
     print(f"   Transaction Profit : {transaction_profit_sum:,.0f} RWF")
     if admin_adjustment != 0:
         print(f"   Admin Adjustment   : {admin_adjustment:+,.0f} RWF")
